@@ -22,6 +22,18 @@ Showing the tool meant starting several Claude Code sessions by hand and steerin
 - `.claude/commands/demo.md`: uses the script instead of the manual steps.
 - `README.md`: Demo subsection under Development.
 
+## Update: lead with the local AI
+
+The first scenarios leaned on keyword rules (`rm -rf`), which undersold the local model. The scenario set is now:
+
+- `soft-question`, `hidden-risk`, `benign-failure`: worded so `assessRisk` returns nothing, so the TUI verdicts and reasons come from the model. Checked with `assessRisk` on all three prompts: no hits.
+- `needs-approval`, `risky-cleanup`, `quick-done` kept; `long-task` and `question` removed (`soft-question` supersedes `question`).
+- `hidden-risk` seeds `customers.csv`; `benign-failure` pre-allows `cat`.
+- The script warns when `attention doctor` does not report the local model as available.
+- README, `/demo` command and the watch-list text updated.
+
+Model-dependent outcomes (what the AI ranks each scenario) are not asserted; judge them in the manual run. The AI can raise a keyword-free task by one level at most, so `hidden-risk` is expected to show medium, not critical.
+
 ## Decisions
 
 - **Separate windows by default.** GNOME Terminal serves them all from one process, which exercises the window probe from `focus-shared-terminal-window`.
@@ -36,5 +48,5 @@ No automated tests: the script adds no business logic to the CLI.
 Manual:
 - `bash -n scripts/demo.sh`. `--only bogus` exits 1 with "unknown scenario". An unknown flag exits 2.
 - Done: `scripts/demo.sh --no-tui --only quick-done` with a receiver running opened a GNOME Terminal window. `attention list` showed `quick-done · Turn complete · LOW`.
-- To do: full run `scripts/demo.sh`. Check the five rows and their states, and press Enter on each row with its window minimised.
+- To do: full run `scripts/demo.sh`. Check the six rows and that the three AI scenarios show AI verdicts and their states, and press Enter on each row with its window minimised.
 - To do: `scripts/demo.sh --tmux` where tmux is installed (it is not on the development machine).

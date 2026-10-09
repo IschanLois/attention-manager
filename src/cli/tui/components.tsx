@@ -5,7 +5,8 @@ import { humaniseEventType, relativeTime, sessionLabel, shortId, sourceLabel } f
 import { PRIORITY_LABELS, RISK_LABELS, STATUS_LABELS, type HealthReport, type Priority, type SessionView, type StoredEvent } from "../model/types.ts";
 import type { TerminalInfo } from "../../core/terminal.ts";
 import type { TuiState } from "./state.ts";
-import type { Theme } from "./theme.ts";
+import { windowRows, wrapSegments, type Line, type Segment } from "./layout.ts";
+import type { ColorName, Theme } from "./theme.ts";
 
 const RISK_SHOWN: Priority[] = ["critical", "high", "medium"];
 
@@ -35,74 +36,71 @@ function modelText(health: HealthReport | null, classifierEnabled: boolean): str
   return `model ${health.model.model}`;
 }
 
-export function Header({ state, now, theme, classifierEnabled }: { state: TuiState; now: number; theme: Theme; classifierEnabled: boolean }) {
-  const { glyphs } = theme;
-  const live = state.connection === "live";
-  const flashing = state.flashUntil > now;
-  const active = state.sessions.filter((s) => s.status !== "ended").length;
-  const sep = ` ${glyphs.sep} `;
-  const model = state.health?.model;
-  const modelHealthy = !classifierEnabled || (model?.reachable === true && model.modelInstalled);
-  return (
-    <Box>
-      <Text inverse={flashing} bold wrap="truncate-end">
-        <Text color={theme.color("magenta")}>attention</Text>
-        {"  "}
-        <Text color={theme.color(live ? "green" : "red")}>
-          {live ? glyphs.live : glyphs.offline} {connectionText(state, now)}
-        </Text>
-        {sep}
-        <Text color={theme.color(modelHealthy ? "gray" : "yellow")}>{modelText(state.health, classifierEnabled)}</Text>
-        {sep}
-        {active} {active === 1 ? "session" : "sessions"}
-        {sep}
-        <Text color={theme.color("yellowBright")}>{attentionCount(state.sessions)} need you</Text>
-        {sep}
-        <Text color={theme.color("redBright")}>{highRiskCount(state.sessions)} high risk</Text>
-        {sep}
-        bell {state.bell ? "on" : "off"}
-      </Text>
-    </Box>
-  );
-}
-
-export function Banners({ state, now, theme, classifierEnabled }: { state: TuiState; now: number; theme: Theme; classifierEnabled: boolean }) {
-  const offline = state.connection === "offline" || state.connection === "reconnecting";
-  const model = state.health?.model;
-  const degraded = classifierEnabled && model !== undefined && (!model.reachable || !model.modelInstalled);
+// Renders pre-wrapped lines; each fits the width, so truncation never cuts anything.
+export function TextLines({ lines, bold, dimColor, inverse }: { lines: Line[]; bold?: boolean; dimColor?: boolean; inverse?: boolean }) {
   return (
     <>
-      {offline ? (
-        <Text color={theme.color("redBright")} wrap="truncate-end">
-          Receiver {connectionText(state, now)} {theme.glyphs.sep} sessions shown may be out of date (press r to retry now)
+      {lines.map((line, i) => (
+        <Text key={i} bold={bold} dimColor={dimColor} inverse={inverse} wrap="truncate-end">
+          {line.length ? line.map((piece, j) => (
+            <Text key={j} color={piece.color}>
+              {piece.text}
+            </Text>
+          )) : " "}
         </Text>
-      ) : null}
-      {degraded ? (
-        <Text color={theme.color("yellow")} wrap="truncate-end">
-          Local model unavailable ({model!.reachable ? `${model!.model} not installed: ollama pull ${model!.model}` : "Ollama unreachable"}) {theme.glyphs.sep} rule-based only
-        </Text>
-      ) : null}
+      ))}
     </>
   );
 }
 
-export function FilterBar({ state, theme }: { state: TuiState; theme: Theme }) {
+function joined(items: Segment[], gap: string, color?: ColorName): Segment[] {
+  return items.flatMap((item, i) => (i ? [{ text: gap, color, gap: true }, item] : [item]));
+}
+
+export function headerLines(state: TuiState, now: number, theme: Theme, classifierEnabled: boolean, width: number): Line[] {
+  const { glyphs } = theme;
+  const live = state.connection === "live";
+  const active = state.sessions.filter((s) => s.status !== "ended").length;
+  const model = state.health?.model;
+  const modelHealthy = !classifierEnabled || (model?.reachable === true && model.modelInstalled);
+  const status: Segment[] = joined(
+    [
+      { text: `${live ? glyphs.live : glyphs.offline} ${connectionText(state, now)}`, color: theme.color(live ? "green" : "red"), keep: true },
+      { text: modelText(state.health, classifierEnabled), color: theme.color(modelHealthy ? "gray" : "yellow"), keep: true },
+      { text: `${active} ${active === 1 ? "session" : "sessions"}`, keep: true },
+      { text: `${attentionCount(state.sessions)} need you`, color: theme.color("yellowBright"), keep: true },
+      { text: `${highRiskCount(state.sessions)} high risk`, color: theme.color("redBright"), keep: true },
+      { text: `bell ${state.bell ? "on" : "off"}`, keep: true },
+    ],
+    ` ${glyphs.sep} `,
+  );
+  return wrapSegments([{ text: "attention", color: theme.color("magenta"), keep: true }, { text: "  ", gap: true }, ...status], width);
+}
+
+export function bannerLines(state: TuiState, now: number, theme: Theme, classifierEnabled: boolean, width: number): Line[] {
+  const offline = state.connection === "offline" || state.connection === "reconnecting";
+  const model = state.health?.model;
+  const degraded = classifierEnabled && model !== undefined && (!model.reachable || !model.modelInstalled);
+  const lines: Line[] = [];
+  if (offline) {
+    const text = `Receiver ${connectionText(state, now)} ${theme.glyphs.sep} sessions shown may be out of date (press r to retry now)`;
+    lines.push(...wrapSegments([{ text, color: theme.color("redBright") }], width));
+  }
+  if (degraded) {
+    const cause = model.reachable ? `${model.model} not installed: ollama pull ${model.model}` : "Ollama unreachable";
+    lines.push(...wrapSegments([{ text: `Local model unavailable (${cause}) ${theme.glyphs.sep} rule-based only`, color: theme.color("yellow") }], width));
+  }
+  return lines;
+}
+
+export function filterLines(state: TuiState, theme: Theme, width: number): Line[] {
   const { filters } = state;
+  const gray = theme.color("gray");
   const parts = [`sort ${filters.sort}`, filters.hideEnded ? "ended hidden" : "ended shown"];
   if (filters.priorities.length) parts.push(`priority ${filters.priorities.at(-1)}+`);
   if (state.labelDraft === null && filters.label) parts.push(`label "${filters.label}"`);
-  return (
-    <Text color={theme.color("gray")} wrap="truncate-end">
-      {state.labelDraft !== null ? (
-        <Text color={theme.color("cyan")}>
-          /{state.labelDraft}
-          {theme.unicode ? "█" : "_"}
-          {"  "}
-        </Text>
-      ) : null}
-      {parts.join(` ${theme.glyphs.sep} `)}
-    </Text>
-  );
+  const draft: Segment[] = state.labelDraft !== null ? [{ text: `/${state.labelDraft}${theme.unicode ? "█" : "_"}`, color: theme.color("cyan") }, { text: "  ", gap: true }] : [];
+  return wrapSegments([...draft, ...joined(parts.map((text) => ({ text, color: gray, keep: true })), ` ${theme.glyphs.sep} `, gray)], width);
 }
 
 function aiTag(confidence: number | null): string {
@@ -120,18 +118,23 @@ const STATUS_WIDTH = 15;
 const SEEN_WIDTH = 7;
 const TERMINAL_WIDTH = 14;
 
+const REASON_MIN_WIDTH = 30;
+
 interface RowLayout {
   prefix: number;
   label: number;
   terminal: boolean;
+  indent: number;
 }
 
-// The label column shrinks to the longest visible label so the reason gets the rest.
+// The label column shrinks to the longest label so the reason gets the rest; a wrapped reason
+// continues under the reason column, or under the label when that column would be too narrow.
 function rowLayout(width: number, theme: Theme, longestLabel: number): RowLayout {
   const terminal = width >= TERMINAL_COLUMN_MIN_WIDTH;
   const label = Math.max(10, Math.min(longestLabel + 1, 28, Math.floor(width * 0.28)));
   const prefix = theme.glyphs.selected.length + theme.glyphs.status.needs_attention.length + 2;
-  return { prefix, label, terminal };
+  const reasonColumn = prefix + PRIORITY_WIDTH + label + 1 + STATUS_WIDTH + 1 + SEEN_WIDTH + (terminal ? TERMINAL_WIDTH + 1 : 0);
+  return { prefix, label, terminal, indent: width - reasonColumn >= REASON_MIN_WIDTH ? reasonColumn : prefix };
 }
 
 function shortTty(tty: string): string {
@@ -150,26 +153,27 @@ export function terminalShort(terminal: TerminalInfo | null): string {
   return parts.join(" ") || "?";
 }
 
-export function SessionRow({ session, selected, highlighted, now, theme, layout }: { session: SessionView; selected: boolean; highlighted: boolean; now: number; theme: Theme; layout: RowLayout }) {
+function rowLines(session: SessionView, selected: boolean, now: number, theme: Theme, layout: RowLayout, width: number): Line[] {
   const { glyphs } = theme;
   const label = sessionLabel(session.label, session.sessionId);
   const reason = session.attentionReason ?? humaniseEventType(session.lastEventType);
   const risk = riskBadge(session, theme);
   const ai = session.attentionReason && session.classificationSource === "ai" ? aiTag(session.classificationConfidence) : "";
-  const dim = session.status === "ended" || session.stale;
-  return (
-    <Text wrap="truncate-end" bold={selected || highlighted} dimColor={dim && !selected}>
-      <Text color={theme.color("cyan")}>{selected ? glyphs.selected : glyphs.unselected}</Text>{" "}
-      <Text color={theme.statusColor(session.status)}>{glyphs.status[session.status]}</Text>{" "}
-      <Text color={theme.priorityColor(session.priority)}>{pad(PRIORITY_LABELS[session.priority], PRIORITY_WIDTH)}</Text>
-      {pad(label, layout.label)} <Text color={theme.statusColor(session.status)}>{pad(STATUS_LABELS[session.status], STATUS_WIDTH)}</Text>{" "}
-      {pad(relativeTime(session.lastSeenAt, now), SEEN_WIDTH)}
-      {layout.terminal ? <Text color={theme.color("blue")}>{pad(terminalShort(session.terminal), TERMINAL_WIDTH)} </Text> : null}
-      {risk ? <Text color={theme.priorityColor(session.taskSeverity)}>{risk} </Text> : null}
-      {ai ? <Text color={theme.color("magenta")}>{ai} </Text> : null}
-      <Text color={theme.color("gray")}>{reason}</Text>
-    </Text>
-  );
+  const segments: Segment[] = [
+    { text: selected ? glyphs.selected : glyphs.unselected, color: theme.color("cyan"), keep: true },
+    { text: " " },
+    { text: glyphs.status[session.status], color: theme.statusColor(session.status), keep: true },
+    { text: " " },
+    { text: pad(PRIORITY_LABELS[session.priority], PRIORITY_WIDTH), color: theme.priorityColor(session.priority), keep: true },
+    { text: `${pad(label, layout.label)} `, keep: true },
+    { text: `${pad(STATUS_LABELS[session.status], STATUS_WIDTH)} `, color: theme.statusColor(session.status), keep: true },
+    { text: pad(relativeTime(session.lastSeenAt, now), SEEN_WIDTH), keep: true },
+  ];
+  if (layout.terminal) segments.push({ text: `${pad(terminalShort(session.terminal), TERMINAL_WIDTH)} `, color: theme.color("blue"), keep: true });
+  if (risk) segments.push({ text: `${risk} `, color: theme.priorityColor(session.taskSeverity), keep: true });
+  if (ai) segments.push({ text: `${ai} `, color: theme.color("magenta"), keep: true });
+  segments.push({ text: reason, color: theme.color("gray") });
+  return wrapSegments(segments, width, { indent: layout.indent });
 }
 
 function ListHeader({ theme, layout }: { theme: Theme; layout: RowLayout }) {
@@ -183,31 +187,36 @@ function ListHeader({ theme, layout }: { theme: Theme; layout: RowLayout }) {
   );
 }
 
+function listRows(sessions: SessionView[], state: TuiState, now: number, theme: Theme, width: number) {
+  const layout = rowLayout(width, theme, Math.max(0, ...sessions.map((s) => sessionLabel(s.label, s.sessionId).length)));
+  return { layout, rows: sessions.map((session) => rowLines(session, session.sessionId === state.selectedId, now, theme, layout, width)) };
+}
+
+// The column header plus every wrapped row.
+export function sessionListHeight(sessions: SessionView[], state: TuiState, now: number, theme: Theme, width: number): number {
+  return 1 + listRows(sessions, state, now, theme, width).rows.reduce((sum, lines) => sum + lines.length, 0);
+}
+
 export function SessionList({ sessions, state, now, theme, width, height }: { sessions: SessionView[]; state: TuiState; now: number; theme: Theme; width: number; height: number }) {
   const selectedIndex = Math.max(0, sessions.findIndex((s) => s.sessionId === state.selectedId));
+  const { layout, rows } = listRows(sessions, state, now, theme, width);
+  const heights = rows.map((lines) => lines.length);
   const space = Math.max(1, height - 1);
-  const overflow = sessions.length > space;
-  const rows = Math.max(1, overflow ? space - 1 : space);
-  const start = Math.min(Math.max(0, selectedIndex - Math.floor(rows / 2)), Math.max(0, sessions.length - rows));
-  const windowed = sessions.slice(start, start + rows);
-  const layout = rowLayout(width, theme, Math.max(0, ...windowed.map((s) => sessionLabel(s.label, s.sessionId).length)));
+  const overflow = heights.reduce((sum, h) => sum + h, 0) > space;
+  const rowSpace = Math.max(1, overflow ? space - 1 : space);
+  const { start, end } = windowRows(heights, selectedIndex, rowSpace);
   return (
     <Box flexDirection="column" width={width} height={height} overflow="hidden">
       <ListHeader theme={theme} layout={layout} />
-      {windowed.map((session) => (
-        <SessionRow
-          key={session.sessionId}
-          session={session}
-          selected={session.sessionId === state.selectedId}
-          highlighted={(state.highlights[session.sessionId] ?? 0) > now}
-          now={now}
-          theme={theme}
-          layout={layout}
-        />
-      ))}
+      {sessions.slice(start, end).map((session, i) => {
+        const selected = session.sessionId === state.selectedId;
+        const highlighted = (state.highlights[session.sessionId] ?? 0) > now;
+        const dim = session.status === "ended" || session.stale;
+        return <TextLines key={session.sessionId} lines={rows[start + i].slice(0, rowSpace)} bold={selected || highlighted} dimColor={dim && !selected} />;
+      })}
       {overflow ? (
         <Text color={theme.color("gray")}>
-          {start + 1}-{Math.min(sessions.length, start + rows)} of {sessions.length}
+          {start + 1}-{end} of {sessions.length}
         </Text>
       ) : null}
     </Box>
@@ -233,6 +242,20 @@ function terminalSummary(terminal: TerminalInfo | null): string {
   return parts.join(", ") || "unknown";
 }
 
+// Wrapped text continues under its first character instead of under the marker.
+function Hanging({ marker, markerColor, color, children }: { marker: string; markerColor?: ColorName; color?: ColorName; children: ReactNode }) {
+  return (
+    <Box>
+      <Box flexShrink={0}>
+        <Text color={markerColor ?? color}>{marker}</Text>
+      </Box>
+      <Text wrap="wrap" color={color}>
+        {children}
+      </Text>
+    </Box>
+  );
+}
+
 function Section({ title, theme, children }: { title: string; theme: Theme; children: ReactNode }) {
   return (
     <Box flexDirection="column" marginTop={1}>
@@ -256,57 +279,58 @@ export function Detail({ session, events, now, theme, width, height }: { session
   const eventRows = Math.max(0, height - 16);
   return (
     <Box flexDirection="column" width={width} height={height} overflow="hidden">
-      <Text bold wrap="truncate-end">
-        {sessionLabel(session.label, session.sessionId)} <Text color={theme.color("gray")}>({shortId(session.sessionId)})</Text>{" "}
-        <Text color={theme.statusColor(session.status)}>{STATUS_LABELS[session.status]}</Text>{" "}
-        <Text color={theme.priorityColor(session.priority)}>{PRIORITY_LABELS[session.priority]}</Text>
-        {session.stale ? <Text color={theme.color("gray")}> stale</Text> : null}
-      </Text>
-      <Text wrap="truncate-end" color={theme.color("gray")}>
-        seen {relativeTime(session.lastSeenAt, now)} ago {theme.glyphs.sep} terminal: {terminalSummary(session.terminal)}
-      </Text>
-      <Section title="Reason" theme={theme}>
-        <Text wrap="wrap">
-          {session.attentionReason ?? "Nothing needs you right now."} <Text color={theme.color("gray")}>[{sourceLabel(session.classificationSource, session.classificationConfidence)}]</Text>
+      <Box flexDirection="column" flexShrink={0}>
+        <Text bold wrap="wrap">
+          {sessionLabel(session.label, session.sessionId)} <Text color={theme.color("gray")}>({shortId(session.sessionId)})</Text>{" "}
+          <Text color={theme.statusColor(session.status)}>{STATUS_LABELS[session.status]}</Text>{" "}
+          <Text color={theme.priorityColor(session.priority)}>{PRIORITY_LABELS[session.priority]}</Text>
+          {session.stale ? <Text color={theme.color("gray")}> stale</Text> : null}
         </Text>
-        {session.classificationEvidence.slice(0, 3).map((line, i) => (
-          <Text key={i} wrap="truncate-end" color={theme.color("gray")}>
-            {theme.glyphs.arrow} {line}
-          </Text>
-        ))}
-      </Section>
-      <Section title="Task" theme={theme}>
-        <Text wrap="wrap">{session.taskSummary ?? "No task captured yet."}</Text>
-        <Text wrap="wrap" color={theme.priorityColor(session.taskSeverity)}>
-          {RISK_LABELS[session.taskSeverity]}
-          {session.taskSeverityReason ? `: ${session.taskSeverityReason}` : ""}
-          {session.taskSeverity !== "none" ? <Text color={theme.color("gray")}> [{sourceLabel(session.taskSeveritySource, session.taskSeverityConfidence)}]</Text> : null}
+        <Text wrap="wrap" color={theme.color("gray")}>
+          seen {relativeTime(session.lastSeenAt, now)} ago {theme.glyphs.sep} terminal: {terminalSummary(session.terminal)}
         </Text>
-        {riskEvidence.map((line, i) => (
-          <Text key={i} wrap="truncate-end" color={theme.color("gray")}>
-            {theme.glyphs.arrow} {line}
+        <Section title="Reason" theme={theme}>
+          <Text wrap="wrap">
+            {session.attentionReason ?? "Nothing needs you right now."} <Text color={theme.color("gray")}>[{sourceLabel(session.classificationSource, session.classificationConfidence)}]</Text>
           </Text>
-        ))}
-      </Section>
-      {session.recentActions.length ? (
-        <Section title="Recent actions" theme={theme}>
-          {session.recentActions.slice(-5).map((line, i) => (
-            <Text key={i} wrap="truncate-end">
+          {session.classificationEvidence.slice(0, 3).map((line, i) => (
+            <Hanging key={i} marker={`${theme.glyphs.arrow} `} color={theme.color("gray")}>
               {line}
-            </Text>
+            </Hanging>
           ))}
         </Section>
-      ) : null}
-      {events && events.length && eventRows > 0 ? (
-        <Section title="Recent events" theme={theme}>
-          {events.slice(0, eventRows).map((event) => (
-            <Text key={event.id} wrap="truncate-end">
-              <Text color={theme.color("gray")}>{pad(relativeTime(event.receivedAt, now), 7)}</Text>
-              {event.summary ?? humaniseEventType(event.eventType)}
-            </Text>
+        <Section title="Task" theme={theme}>
+          <Text wrap="wrap">{session.taskSummary ?? "No task captured yet."}</Text>
+          <Text wrap="wrap" color={theme.priorityColor(session.taskSeverity)}>
+            {RISK_LABELS[session.taskSeverity]}
+            {session.taskSeverityReason ? `: ${session.taskSeverityReason}` : ""}
+            {session.taskSeverity !== "none" ? <Text color={theme.color("gray")}> [{sourceLabel(session.taskSeveritySource, session.taskSeverityConfidence)}]</Text> : null}
+          </Text>
+          {riskEvidence.map((line, i) => (
+            <Hanging key={i} marker={`${theme.glyphs.arrow} `} color={theme.color("gray")}>
+              {line}
+            </Hanging>
           ))}
         </Section>
-      ) : null}
+        {session.recentActions.length ? (
+          <Section title="Recent actions" theme={theme}>
+            {session.recentActions.slice(-5).map((line, i) => (
+              <Text key={i} wrap="wrap">
+                {line}
+              </Text>
+            ))}
+          </Section>
+        ) : null}
+        {events && events.length && eventRows > 0 ? (
+          <Section title="Recent events" theme={theme}>
+            {events.slice(0, eventRows).map((event) => (
+              <Hanging key={event.id} marker={pad(relativeTime(event.receivedAt, now), 7)} markerColor={theme.color("gray")}>
+                {event.summary ?? humaniseEventType(event.eventType)}
+              </Hanging>
+            ))}
+          </Section>
+        ) : null}
+      </Box>
     </Box>
   );
 }
@@ -362,37 +386,28 @@ export function HelpOverlay({ theme }: { theme: Theme }) {
         Keyboard
       </Text>
       {HELP.map(([keys, what]) => (
-        <Text key={keys}>
-          <Text color={theme.color("cyan")}>{pad(keys, 16)}</Text>
+        <Hanging key={keys} marker={pad(keys, 16)} markerColor={theme.color("cyan")}>
           {what}
-        </Text>
+        </Hanging>
       ))}
       <Text color={theme.color("gray")}>Press any key to close.</Text>
     </Box>
   );
 }
 
-export function Footer({ state, theme, narrow }: { state: TuiState; theme: Theme; narrow: boolean }) {
-  const sep = ` ${theme.glyphs.sep} `;
+export function footerLines(state: TuiState, theme: Theme, narrow: boolean, width: number): Line[] {
   let hints: string[];
   if (state.labelDraft !== null) hints = ["type to filter", "Enter keep", "Esc cancel"];
   else if (state.help) hints = ["any key close", "q quit"];
   else if (state.view === "detail") hints = ["Enter focus", "d/Esc back", "j/k next session", "? help", "q quit"];
   else hints = ["j/k move", "Enter focus", narrow ? "d detail" : "d expand", "/ filter", "s sort", "e ended", "1-5 priority", "? help", "q quit"];
-  return (
-    <Text color={theme.color("gray")} wrap="truncate-end">
-      {hints.join(sep)}
-    </Text>
-  );
+  const gray = theme.color("gray");
+  return wrapSegments(joined(hints.map((text) => ({ text, color: gray, keep: true })), ` ${theme.glyphs.sep} `, gray), width);
 }
 
-export function StatusLine({ state, theme }: { state: TuiState; theme: Theme }) {
-  if (!state.status) return <Text> </Text>;
+export function statusLines(state: TuiState, theme: Theme, width: number): Line[] {
+  if (!state.status) return [[]];
   const tone = state.status.tone;
   const color = tone === "error" ? "redBright" : tone === "warn" ? "yellowBright" : tone === "success" ? "green" : "cyan";
-  return (
-    <Text color={theme.color(color)} wrap="truncate-end">
-      {state.status.text}
-    </Text>
-  );
+  return wrapSegments([{ text: state.status.text, color: theme.color(color) }], width);
 }
