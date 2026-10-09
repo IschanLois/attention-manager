@@ -1,9 +1,10 @@
 // Opt-in live evaluation of the classifier against Ollama. Not part of `pnpm test`.
-// Usage: OLLAMA_URL=http://127.0.0.1:11434 node --no-warnings=ExperimentalWarning scripts/eval-classifier.ts [model ...]
+// Usage: OLLAMA_URL=http://127.0.0.1:11434 node --no-warnings=ExperimentalWarning scripts/eval-classifier.ts [--task] [model ...]
+// --task evaluates the task-severity prompt against tests/fixtures/task-cases.json instead.
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { createOllamaClassifier } from "../src/core/classifier/ollama.ts";
-import type { ClassifierInput } from "../src/core/classifier/types.ts";
+import type { ClassifierInput, TaskClassifierInput } from "../src/core/classifier/types.ts";
 
 interface EvalCase {
   id: string;
@@ -12,10 +13,57 @@ interface EvalCase {
 }
 
 const url = (process.env.OLLAMA_URL ?? "http://127.0.0.1:11434").replace(/\/+$/, "");
-const models = process.argv.slice(2).length ? process.argv.slice(2) : [process.env.OLLAMA_MODEL ?? "qwen2.5:1.5b"];
+const args = process.argv.slice(2);
+const taskMode = args.includes("--task");
+const modelArgs = args.filter((a) => a !== "--task");
+const models = modelArgs.length ? modelArgs : [process.env.OLLAMA_MODEL ?? "qwen3:1.7b"];
 const cases = JSON.parse(readFileSync(resolve(import.meta.dirname, "../tests/fixtures/classifier-cases.json"), "utf8")) as EvalCase[];
 
+interface TaskCase {
+  id: string;
+  input: TaskClassifierInput;
+  expect: { priority: string[] };
+}
+const taskCases = JSON.parse(readFileSync(resolve(import.meta.dirname, "../tests/fixtures/task-cases.json"), "utf8")) as TaskCase[];
+
+async function evaluateTasks(model: string): Promise<void> {
+  const classifier = createOllamaClassifier({ url, model, timeoutMs: 120_000 });
+  const health = await classifier.health();
+  if (!health.reachable || !health.modelInstalled) {
+    console.log(`${model}: skipped (${health.error ?? "unavailable"})`);
+    return;
+  }
+  let hits = 0;
+  let invalid = 0;
+  const latencies: number[] = [];
+  const misses: string[] = [];
+  for (const c of taskCases) {
+    const started = performance.now();
+    try {
+      const result = await classifier.classifyTask!(c.input);
+      latencies.push(performance.now() - started);
+      if (!result) {
+        invalid++;
+        continue;
+      }
+      if (c.expect.priority.includes(result.priority)) hits++;
+      else misses.push(`${c.id}: got ${result.priority}, want ${c.expect.priority.join("|")} (${result.reason})`);
+    } catch (error) {
+      invalid++;
+      misses.push(`${c.id}: error ${(error as Error).message}`);
+    }
+  }
+  const sorted = [...latencies].sort((a, b) => a - b);
+  console.log(`\n== ${model} (task severity) ==`);
+  console.log(`priority accuracy: ${hits}/${taskCases.length}  invalid/errors: ${invalid}  latency p50 ${(sorted[Math.floor(sorted.length / 2)] ?? 0).toFixed(0)}ms`);
+  for (const m of misses) console.log(`  miss ${m}`);
+}
+
 for (const model of models) {
+  if (taskMode) {
+    await evaluateTasks(model);
+    continue;
+  }
   const classifier = createOllamaClassifier({ url, model, timeoutMs: 120_000 });
   const health = await classifier.health();
   if (!health.reachable || !health.modelInstalled) {

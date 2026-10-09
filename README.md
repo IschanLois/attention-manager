@@ -115,7 +115,20 @@ All settings are environment variables (see `env.example`):
 | `MAX_BODY_BYTES` | `262144` | Maximum request body. |
 | `RETENTION_DAYS` / `MAX_SESSIONS` | `7` / `1000` | Purge ended sessions after this many days; cap tracked sessions. |
 | `ATTENTION_ALLOW_NO_TOKEN` | unset | Set to `1` to run the receiver without an ingest token (not recommended). |
+| `CAPTURE_TASK_CONTEXT` | `1` | Set to `0` to stop capturing prompt, command and narration snippets for task severity. |
 | `LOG_LEVEL` | `info` | `error`, `warn`, `info`, `debug`. Payloads are never logged. |
+
+## Task severity: which agents to watch
+
+Beyond "who is blocked", each card shows a **Risk** badge for how consequential the agent's current task is, so you can keep an eye on the agent rewriting a database schema even while it is still working.
+
+- **Context captured per session:** the latest prompt (first 300 characters), the last five tool actions as "Tool: command or path" snippets, and the agent's last message. Tool outputs, file contents and transcripts are never captured.
+- **Keyword rules first:** DDL (`DROP`/`ALTER`/`TRUNCATE`, "drop the users table"), `rm -rf`, force pushes, hard resets, `DELETE FROM`, production deploys, Terraform/kubectl mutations are **critical**; migrations, auth/billing/secrets, `sudo`, `curl | sh`, publishing are **high**; dependency changes, branch switches, broad refactors are **medium**; everything else is **low**.
+- **Model second:** on each new prompt and each finished turn the local model rates the task from the same context. It can raise the keyword floor but never lower it. The badge shows "Observed" for keyword matches and "AI · nn%" for model verdicts.
+- **Escalation:** a permission request for a critical-risk command, or inside a critical-risk task, is shown as attention priority **critical** instead of high.
+- **Ranking:** active before ended, then attention priority, then task severity, then fresh before stale, then recency.
+
+Set `CAPTURE_TASK_CONTEXT=0` to disable the capture; severity then stays at "none" and only the attention state is tracked. The hook script trims prompts and assistant messages and keeps only the `command`, `file_path` and `description` of tool inputs before anything leaves the Claude Code process (when `jq` is installed; without it the receiver drops the rest on arrival).
 
 ## Session states and priorities
 
@@ -161,4 +174,4 @@ rm -rf ~/.local/opt/ollama ~/.local/bin/ollama
 
 ## Privacy
 
-Stored per event: session id, normalized event type, receive time, a sanitized summary (tool name, first error line, notification message truncated to 100 characters) and a hash for deduplication. Never stored or displayed: prompts, tool inputs and outputs, transcript paths, full working directories (only the basename is kept as a label). Secrets-looking strings are redacted before anything is summarised or sent to the model. The model only receives the event type, tool name, and up to 400 sanitized characters of the relevant text.
+Stored per event: session id, normalized event type, receive time, a sanitized summary (tool name, first error line, notification message truncated to 100 characters) and a hash for deduplication. Stored per session for task severity (unless `CAPTURE_TASK_CONTEXT=0`): a 160-character prompt snippet, the last five "Tool: command or path" snippets (120 characters each) and a 300-character snippet of the agent's last message. Never stored or displayed: tool outputs, file contents, transcript paths, full working directories (paths are shown relative to the project or as a basename). Secrets-looking strings are redacted before anything is summarised or sent to the model. The model only receives the event type, tool name, and up to 400 sanitized characters of the relevant text.
