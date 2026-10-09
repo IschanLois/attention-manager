@@ -4,7 +4,7 @@ import {
   type NormalizedEvent,
   type Priority,
   type Session,
-} from "@/core/schemas";
+} from "../schemas.ts";
 
 export const FAILURE_WINDOW_MS = 2 * 60_000;
 export const FAILURE_ESCALATION_COUNT = 3;

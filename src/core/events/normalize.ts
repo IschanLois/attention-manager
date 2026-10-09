@@ -8,7 +8,7 @@ import {
   type HookEvent,
   type HookEventName,
   type NormalizedEvent,
-} from "@/core/schemas";
+} from "../schemas.ts";
 
 export type NormalizeResult =
   | { ok: true; event: NormalizedEvent }

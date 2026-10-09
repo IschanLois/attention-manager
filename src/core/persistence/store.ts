@@ -1,7 +1,7 @@
 import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import { DatabaseSync } from "node:sqlite";
-import type { ClassificationSource, EventType, NormalizedEvent, Priority, Session, SessionStatus, StoredEvent } from "@/core/schemas";
+import type { ClassificationSource, EventType, NormalizedEvent, Priority, Session, SessionStatus, StoredEvent } from "../schemas.ts";
 
 export interface StoreOptions {
   path: string;
