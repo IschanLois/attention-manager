@@ -37,9 +37,15 @@ const RISK_RULES: RiskRule[] = [
 export function assessRisk(text: string | null | undefined): RiskHit[] {
   if (!text) return [];
   const hits: RiskHit[] = [];
+  const seen = new Set<string>();
   for (const rule of RISK_RULES) {
     const match = rule.pattern.exec(text);
-    if (match) hits.push({ level: rule.level, match: match[0].replace(/\s+/g, " ").trim().slice(0, 60) });
+    if (!match) continue;
+    const snippet = match[0].replace(/\s+/g, " ").trim().slice(0, 60);
+    const key = snippet.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    hits.push({ level: rule.level, match: snippet });
   }
   return hits.sort((a, b) => PRIORITY_RANK[a.level] - PRIORITY_RANK[b.level]).slice(0, 3);
 }

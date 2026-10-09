@@ -39,4 +39,9 @@ describe("assessRisk", () => {
     expect(describeRisk(hits)).toMatch(/^Matched "/);
     expect(describeRisk([])).toBeNull();
   });
+
+  it("does not repeat the same matched text when several rules hit it", () => {
+    const hits = assessRisk("psql -c 'DROP TABLE legacy_users'");
+    expect(hits.map((h) => h.match.toLowerCase())).toEqual([...new Set(hits.map((h) => h.match.toLowerCase()))]);
+  });
 });
