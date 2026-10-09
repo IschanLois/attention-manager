@@ -41,6 +41,7 @@ function newSession(event: NormalizedEvent): Session {
     taskSeverityEvidence: [],
     taskSeverityConfidence: null,
     taskClassifiedAt: null,
+    terminal: event.terminal,
   };
 }
 
@@ -198,6 +199,7 @@ export function reduceSession(previous: Session | null, event: NormalizedEvent):
     lastSeenAt: event.receivedAt,
     lastEventType: event.type,
     eventSeq: base.eventSeq + 1,
+    terminal: event.terminal ?? base.terminal,
   };
   if (stamped.status === "ended" && event.type !== "session_start") return stamped;
   return applyEvent(stamped, event);

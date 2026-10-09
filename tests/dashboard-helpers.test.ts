@@ -36,6 +36,7 @@ function session(overrides: Partial<SessionView> = {}): SessionView {
     taskSeverityEvidence: [],
     taskSeverityConfidence: null,
     taskClassifiedAt: null,
+    terminal: null,
     stale: false,
     ...overrides,
   };

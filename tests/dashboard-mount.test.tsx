@@ -52,6 +52,7 @@ const snapshot: SessionsSnapshot = {
       taskSeverityEvidence: ["DROP TABLE"],
       taskSeverityConfidence: null,
       taskClassifiedAt: NOW,
+      terminal: null,
       stale: false,
     },
   ],

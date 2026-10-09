@@ -1,4 +1,5 @@
 import { z } from "zod";
+import type { TerminalInfo } from "./terminal.ts";
 
 export const SESSION_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_-]{7,127}$/;
 
@@ -40,6 +41,7 @@ export const hookEventSchema = z.object({
   stop_hook_active: z.boolean().optional(),
   last_assistant_message: truncatedString(100_000).optional(),
   trigger: boundedString(64).optional(),
+  terminal: z.unknown().optional(),
 });
 
 export type HookEvent = z.infer<typeof hookEventSchema>;
@@ -117,6 +119,7 @@ export interface NormalizedEvent {
   taskKind: TaskKind | null;
   taskText: string | null;
   riskHits: RiskHit[];
+  terminal: TerminalInfo | null;
 }
 
 export interface Session {
@@ -147,6 +150,7 @@ export interface Session {
   taskSeverityEvidence: string[];
   taskSeverityConfidence: number | null;
   taskClassifiedAt: string | null;
+  terminal: TerminalInfo | null;
 }
 
 export interface StoredEvent {

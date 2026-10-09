@@ -12,6 +12,7 @@ import {
   type TaskKind,
 } from "../schemas.ts";
 import { assessRisk } from "../sessions/risk.ts";
+import { sanitizeTerminal } from "../terminal.ts";
 
 export type NormalizeResult =
   | { ok: true; event: NormalizedEvent }
@@ -193,6 +194,7 @@ export function normalizeHookEvent(raw: unknown, receivedAt: string): NormalizeR
       taskKind,
       taskText,
       riskHits: assessRisk(taskText),
+      terminal: sanitizeTerminal(event.terminal),
     },
   };
 }
