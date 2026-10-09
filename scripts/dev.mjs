@@ -11,9 +11,10 @@ const receiver = spawn(
   ["--env-file-if-exists=.env", "--no-warnings=ExperimentalWarning", "src/receiver/main.ts"],
   common,
 );
+// Next.js loads .env files itself and rejects --env-file in its child process options.
 const dashboard = spawn(
   process.execPath,
-  ["--env-file-if-exists=.env", "node_modules/next/dist/bin/next", "dev", "-H", "127.0.0.1"],
+  ["node_modules/next/dist/bin/next", "dev", "-H", "127.0.0.1"],
   common,
 );
 
