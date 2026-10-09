@@ -1,5 +1,7 @@
 # attention: know which coding agent needs you, and why
 
+![demo](./demo.png)
+
 When several coding agents run at once, the one that matters is rarely the one that pinged you last. attention is a terminal dashboard that watches all of your agent sessions and points your attention at the ones with the most at stake. It ranks them by **semantic urgency**: what the agent is about to do, not just whether it is waiting. It tells you **why** each one is ranked where it is, and jumps to the terminal running it when you press Enter.
 
 - **Attention goes to the riskiest session.** Every session carries a risk level for its current task. Keyword rules catch the obvious cases (`rm -rf`, `DROP TABLE`, force pushes). A small local model reads the rest, for example a request to empty "the only copy of our customer list", which contains no risky keyword. Risk ranks first, so the dangerous session sits on top even while it is still working or before it asks for permission.
@@ -7,20 +9,6 @@ When several coding agents run at once, the one that matters is rarely the one t
 - **Every ranking explains itself.** The detail view gives the reason for the risk, the evidence the model quoted from the session, and its confidence (for example "Medium risk: emptying a critical customer list file… [AI confidence 80%]"). Keyword verdicts are labelled "Observed", so you can always tell a rule from a model judgement.
 - **Built for coding agents in general.** Claude Code is the first agent it supports, through its hook events. The ranking, risk model and UI work on a normalized event stream, and support for other coding agents, including fully local ones, is the direction. Today only Claude Code is wired up.
 - **Private by design.** Session state comes deterministically from the agent's hook events. The local model, via Ollama, only interprets the ambiguous ones, and nothing leaves your machine.
-
-```
- attention  ● live · model qwen3:1.7b · 3 sessions · 1 need you · 1 high risk · bell on
- sort attention · ended hidden
-     PRIORITY SESSION      STATUS          SEEN   TERMINAL       REASON
- ▶ ● CRITICAL billing-api  Needs input     0s     tmux %2        Waiting for permission to run Bash
-   ◐ None     docs-site    Working         2m     vscode pts/3   Tool finished
-   ↩ Low      infra        Turn complete   5m     kitty 4        Turn finished
- ──────────────────────────────────────────────────────────────────────────────────────────────────
- billing-api (a1b2c3d4) Needs input CRITICAL
- seen 0s ago · terminal: tmux %2, /dev/pts/4, pid 4242
- …
- j/k move · Enter focus · d expand · / filter · s sort · e ended · 1-5 priority · ? help · q quit
-```
 
 Documentation: [how it works](docs/how-it-works.md) (concepts), [technical implementation](docs/technical-implementation.md) (architecture, contracts, security model, tests) and `docs/worklogs/` (decisions and verification history).
 
