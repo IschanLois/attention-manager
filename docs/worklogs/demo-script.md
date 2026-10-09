@@ -38,6 +38,7 @@ Model-dependent outcomes (what the AI ranks each scenario) are not asserted; jud
 
 - **Separate windows by default.** GNOME Terminal serves them all from one process, which exercises the window probe from `focus-shared-terminal-window`.
 - **Nothing is approved automatically.** The approval and `rm -rf` scenarios stay pending until the presenter answers. `rm -rf` only targets the generated folder.
+- **`rm` always asks in `risky-cleanup`.** The session gets `--settings` with an `ask` rule for `Bash(rm:*)`, so an auto-mode classifier or a broad allow rule in the presenter's own config cannot run the deletion silently. Manual check: the permission prompt appears before `build` is removed.
 - **The TUI starts first, then a 2 s wait.** Sessions that start before the receiver listens are not recorded.
 - **Folder trust is left to the user.** Hooks do not fire until a new folder is trusted. Writing `~/.claude.json` to pre-accept trust would change the user's Claude config. Trust is stored per path and the folders keep their paths, so the prompt only appears on the first run.
 

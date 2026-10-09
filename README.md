@@ -8,7 +8,7 @@ A terminal UI that watches all your Claude Code sessions at once, tells you whic
      PRIORITY SESSION      STATUS          SEEN   TERMINAL       REASON
  ▶ ● CRITICAL billing-api  Needs attention 0s     tmux %2        ⚠ critical Waiting for permission to run Bash
    ◐ None     docs-site    Working         2m     vscode pts/3   Tool finished
-   ✔ Low      infra        Turn complete   5m     kitty 4        Turn finished
+   ↩ Low      infra        Turn complete   5m     kitty 4        Turn finished
  ──────────────────────────────────────────────────────────────────────────────────────────────────
  billing-api (a1b2c3d4) Needs attention CRITICAL
  seen 0s ago · terminal: tmux %2, /dev/pts/4, pid 4242

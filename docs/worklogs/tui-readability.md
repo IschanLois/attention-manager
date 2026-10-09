@@ -14,6 +14,7 @@ Several TUI details were hard to read or redundant: the "just now" age was cut t
   - AI confidence tag, list reason, `[source]` tags and evidence lines are white.
   - Risk label is white for low/none; the risk explanation is white.
   - Removed the detail title line and the `seen ... | terminal: ...` line, plus the unused `terminalSummary` helper.
+- The `completed` status glyph is `↩` (ASCII `[<]`) instead of `✔`, since a check mark read as finished work when the session is actually waiting for the user.
 
 ## Decisions
 
