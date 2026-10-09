@@ -1,41 +1,65 @@
 {
   "name": "attention-manager",
   "version": "0.1.0",
-  "private": true,
+  "description": "A terminal UI that shows which Claude Code sessions need you and jumps to the terminal running them.",
+  "license": "MIT",
+  "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/IschanLois/app-builders-hackathon.git"
+  },
+  "keywords": [
+    "claude",
+    "claude-code",
+    "hooks",
+    "tui",
+    "terminal",
+    "tmux",
+    "attention",
+    "cli"
+  ],
+  "bin": {
+    "attention": "dist/cli/main.js"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=24"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
   "scripts": {
-    "dev": "node scripts/dev.mjs",
-    "dev:dashboard": "next dev -H 127.0.0.1",
-    "dev:receiver": "node --env-file-if-exists=.env --no-warnings=ExperimentalWarning --watch src/receiver/main.ts",
-    "receiver": "node --env-file-if-exists=.env --no-warnings=ExperimentalWarning src/receiver/main.ts",
-    "build": "next build",
-    "start": "next start -H 127.0.0.1",
-    "hooks:install": "node --no-warnings=ExperimentalWarning scripts/setup-hooks.ts install",
-    "hooks:uninstall": "node --no-warnings=ExperimentalWarning scripts/setup-hooks.ts uninstall",
-    "doctor": "node --env-file-if-exists=.env --no-warnings=ExperimentalWarning scripts/doctor.ts",
+    "attention": "node src/cli/main.ts",
+    "receiver": "node src/cli/main.ts receiver",
+    "clean": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\"",
+    "build": "pnpm clean && tsc -p tsconfig.build.json",
     "lint": "eslint",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "verify": "pnpm lint && pnpm typecheck && pnpm test && pnpm build && npm pack --dry-run",
+    "prepack": "pnpm build",
+    "prepublishOnly": "pnpm verify"
   },
   "dependencies": {
     "@clack/prompts": "1.8.1",
     "ink": "7.1.1",
-    "next": "16.4.0",
     "react": "19.3.0",
-    "react-dom": "19.3.0",
     "zod": "^4.6.5"
   },
   "devDependencies": {
-    "@tailwindcss/turbopack": "^4",
+    "@eslint/js": "^9.39.5",
     "@types/node": "^24.19.1",
     "@types/react": "^19",
-    "@types/react-dom": "^19",
     "eslint": "^9",
-    "eslint-config-next": "16.4.0",
-    "happy-dom": "^20.14.5",
+    "eslint-plugin-react-hooks": "7.1.1",
     "ink-testing-library": "4.0.0",
-    "tailwindcss": "^4",
     "typescript": "^5",
+    "typescript-eslint": "8.71.0",
     "vitest": "^5.0.3"
   },
   "packageManager": "pnpm@11.6.0"

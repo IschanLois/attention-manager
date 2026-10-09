@@ -3,7 +3,7 @@ import { z } from "zod";
 // Terminal identity arrives from the hook process environment and is later passed as
 // arguments to focus commands, so every field is matched against a strict allow-list
 // pattern; anything else is dropped rather than repaired.
-const PATH = /^\/[A-Za-z0-9_.\/@+-]{1,255}$/;
+const PATH = /^\/[A-Za-z0-9_./@+-]{1,255}$/;
 const DIGITS = /^\d{1,9}$/;
 const UUID = /^[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}$/;
 
@@ -17,7 +17,7 @@ export const terminalInfoSchema = z.object({
   termProgram: optionalField(pattern(/^[A-Za-z0-9_.+-]{1,64}$/)),
   tmux: optionalField(z.object({ socket: pattern(PATH), pane: pattern(/^%\d{1,7}$/) })),
   screen: optionalField(z.object({ sty: pattern(/^\d{1,10}\.[A-Za-z0-9_.-]{1,100}$/), window: optionalField(pattern(/^\d{1,4}$/)) })),
-  kitty: optionalField(z.object({ windowId: pattern(DIGITS), listenOn: optionalField(pattern(/^(?:unix:@?|tcp:)[A-Za-z0-9_.\/:@+-]{1,255}$/)) })),
+  kitty: optionalField(z.object({ windowId: pattern(DIGITS), listenOn: optionalField(pattern(/^(?:unix:@?|tcp:)[A-Za-z0-9_./:@+-]{1,255}$/)) })),
   wezterm: optionalField(z.object({ pane: pattern(DIGITS), socket: optionalField(pattern(PATH)) })),
   iterm: optionalField(z.object({ sessionId: pattern(/^w\d{1,4}t\d{1,4}p\d{1,4}:[0-9A-Fa-f-]{36}$/) })),
   appleTerminal: optionalField(z.object({ sessionId: pattern(UUID) })),

@@ -1,4 +1,4 @@
-import type { Priority, SessionView, SortMode } from "./types";
+import type { Priority, SessionView, SortMode } from "./types.ts";
 
 const PRIORITY_RANK: Record<Priority, number> = { critical: 0, high: 1, medium: 2, low: 3, none: 4 };
 

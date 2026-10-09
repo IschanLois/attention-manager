@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { humaniseEventType, relativeTime, relativeTimeAgo, shortId, sourceLabel } from "@/lib/format";
-import { applyFilters, DEFAULT_FILTERS, parseFilters, serializeFilters } from "@/lib/filters";
-import { announcementFor } from "@/lib/hooks/useSessionStream";
-import { isStale } from "@/lib/sort";
-import type { SessionView } from "@/lib/types";
+import { humaniseEventType, relativeTime, relativeTimeAgo, shortId, sourceLabel } from "@/cli/model/format";
+import { applyFilters, DEFAULT_FILTERS, parseFilterFlags, prioritiesAtLeast } from "@/cli/model/filters";
+import { announcementFor } from "@/cli/model/announce";
+import { isStale } from "@/cli/model/sort";
+import type { SessionView } from "@/cli/model/types";
 
 const NOW = Date.parse("2026-10-09T10:00:00.000Z");
 
@@ -105,22 +105,38 @@ describe("isStale", () => {
 });
 
 describe("filters", () => {
-  it("parses and serialises url search params round-trip", () => {
-    const parsed = parseFilters({ status: "working,error", priority: "high", risk: "critical,high", ended: "show", sort: "recent" });
+  it("parses list flags into filters", () => {
+    const parsed = parseFilterFlags({ status: "working,error", minPriority: "high", minRisk: "medium", sort: "recent" });
     expect(parsed).toEqual({
-      statuses: ["working", "error"],
-      priorities: ["high"],
-      risks: ["critical", "high"],
-      hideEnded: false,
-      sort: "recent",
+      ok: true,
+      filters: { statuses: ["working", "error"], priorities: ["critical", "high"], risks: ["critical", "high", "medium"], hideEnded: true, sort: "recent", label: "" },
     });
-    expect(serializeFilters(parsed)).toBe("status=working%2Cerror&priority=high&risk=critical%2Chigh&ended=show&sort=recent");
-    expect(serializeFilters(DEFAULT_FILTERS)).toBe("");
+    expect(parseFilterFlags({})).toEqual({ ok: true, filters: DEFAULT_FILTERS });
   });
 
-  it("ignores unknown values", () => {
-    const parsed = parseFilters({ status: "bogus,idle", priority: ["nope"], risk: "severe", sort: "weird" });
-    expect(parsed).toEqual({ statuses: ["idle"], priorities: [], risks: [], hideEnded: true, sort: "attention" });
+  it("shows ended sessions with --all or when filtering for them", () => {
+    expect(parseFilterFlags({ all: true })).toMatchObject({ ok: true, filters: { hideEnded: false } });
+    expect(parseFilterFlags({ status: "ended" })).toMatchObject({ ok: true, filters: { hideEnded: false, statuses: ["ended"] } });
+  });
+
+  it("rejects unknown flag values with the allowed list", () => {
+    const status = parseFilterFlags({ status: "bogus,idle" });
+    expect(status.ok).toBe(false);
+    if (!status.ok) expect(status.error).toMatch(/unknown --status value "bogus".*needs_attention/);
+    expect(parseFilterFlags({ minPriority: "severe" }).ok).toBe(false);
+    expect(parseFilterFlags({ sort: "weird" }).ok).toBe(false);
+  });
+
+  it("returns the priorities at or above a minimum", () => {
+    expect(prioritiesAtLeast("critical")).toEqual(["critical"]);
+    expect(prioritiesAtLeast("medium")).toEqual(["critical", "high", "medium"]);
+    expect(prioritiesAtLeast("none")).toEqual(["critical", "high", "medium", "low", "none"]);
+  });
+
+  it("filters by a label or id fragment, case-insensitively", () => {
+    const list = [session({ sessionId: "a-aaaaaaaaaa", label: "Billing-API" }), session({ sessionId: "b-bbbbbbbbbb", label: "docs" })];
+    expect(applyFilters(list, { ...DEFAULT_FILTERS, label: "billing" }).map((s) => s.sessionId)).toEqual(["a-aaaaaaaaaa"]);
+    expect(applyFilters(list, { ...DEFAULT_FILTERS, label: "bbbb" }).map((s) => s.sessionId)).toEqual(["b-bbbbbbbbbb"]);
   });
 
   it("applies status, priority, risk and hide-ended filters", () => {

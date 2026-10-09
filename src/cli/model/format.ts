@@ -1,4 +1,4 @@
-import type { ClassificationSource } from "./types";
+import type { ClassificationSource } from "./types.ts";
 
 const EVENT_LABELS: Record<string, string> = {
   session_start: "Session started",

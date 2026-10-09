@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { attentionCount, highRiskCount, sortSessions } from "@/lib/sort";
-import type { SessionView } from "@/lib/types";
+import { attentionCount, highRiskCount, sortSessions } from "@/cli/model/sort";
+import type { SessionView } from "@/cli/model/types";
 
 const NOW = Date.parse("2026-10-09T10:00:00.000Z");
 const STALE_AFTER = 600_000;

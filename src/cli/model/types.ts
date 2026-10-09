@@ -1,6 +1,6 @@
-import type { ClassificationSource, EventType, Priority, SessionStatus, StoredEvent } from "@/core/schemas";
-import type { SessionDetail, SessionsSnapshot, SessionView } from "@/core/sessions/view";
-import type { HealthReport } from "@/receiver/server";
+import type { ClassificationSource, EventType, Priority, SessionStatus, StoredEvent } from "../../core/schemas.ts";
+import type { SessionDetail, SessionsSnapshot, SessionView } from "../../core/sessions/view.ts";
+import type { HealthReport } from "../../receiver/server.ts";
 
 export type { ClassificationSource, EventType, HealthReport, Priority, SessionDetail, SessionsSnapshot, SessionStatus, SessionView, StoredEvent };
 
@@ -14,6 +14,7 @@ export interface Filters {
   risks: Priority[];
   hideEnded: boolean;
   sort: SortMode;
+  label: string;
 }
 
 export const STATUS_VALUES: readonly SessionStatus[] = ["needs_attention", "error", "working", "starting", "completed", "idle", "ended"];
