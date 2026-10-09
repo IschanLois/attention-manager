@@ -90,6 +90,24 @@ describe("createOllamaClassifier", () => {
     expect((captured!.body.options as { temperature: number }).temperature).toBe(0);
   });
 
+  it("disables thinking only for models that advertise the capability, probing once", async () => {
+    const seen: Array<{ url: string; body: Record<string, unknown> }> = [];
+    const make = (capabilities: string[]) => withFetch(async (url, init) => {
+      const body = init?.body ? JSON.parse(String(init.body)) : {};
+      seen.push({ url, body });
+      if (url.endsWith("/api/show")) return new Response(JSON.stringify({ capabilities }), { status: 200 });
+      return chatResponse(JSON.stringify({ needs_attention: false, priority: "none", reason: "Routine.", evidence: [], confidence: 0.9 }));
+    });
+    const thinker = make(["completion", "thinking"]);
+    await thinker.classify(input);
+    await thinker.classify(input);
+    expect(seen.filter((s) => s.url.endsWith("/api/show"))).toHaveLength(1);
+    expect(seen.filter((s) => s.url.endsWith("/api/chat")).every((s) => s.body.think === false)).toBe(true);
+    seen.length = 0;
+    await make(["completion"]).classify(input);
+    expect(seen.find((s) => s.url.endsWith("/api/chat"))!.body).not.toHaveProperty("think");
+  });
+
   it("throws invalid_output when the model returns garbage", async () => {
     const classifier = withFetch(async () => chatResponse("I cannot help with that"));
     await expect(classifier.classify(input)).rejects.toMatchObject({ kind: "invalid_output" });

@@ -27,6 +27,7 @@ function modelMatches(installed: string, wanted: string): boolean {
 export function createOllamaClassifier(options: OllamaOptions): ClassifierPort {
   const fetchImpl = options.fetchImpl ?? fetch;
   const base = options.url.replace(/\/+$/, "");
+  let supportsThinking: boolean | null = null;
 
   async function request(path: string, init: RequestInit, timeoutMs: number): Promise<Response> {
     const controller = new AbortController();
@@ -41,8 +42,25 @@ export function createOllamaClassifier(options: OllamaOptions): ClassifierPort {
     }
   }
 
+  async function detectThinking(): Promise<boolean> {
+    if (supportsThinking !== null) return supportsThinking;
+    try {
+      const res = await request("/api/show", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ model: options.model }),
+      }, Math.min(options.timeoutMs, 3000));
+      const info = (await res.json()) as { capabilities?: unknown };
+      supportsThinking = Array.isArray(info.capabilities) && info.capabilities.includes("thinking");
+    } catch {
+      return false;
+    }
+    return supportsThinking;
+  }
+
   return {
     async classify(input: ClassifierInput) {
+      const thinking = await detectThinking();
       const body = {
         model: options.model,
         stream: false,
@@ -50,6 +68,7 @@ export function createOllamaClassifier(options: OllamaOptions): ClassifierPort {
         format: classificationJsonSchema,
         options: { temperature: 0, num_predict: 200, num_ctx: 2048, seed: 7 },
         messages: buildMessages(input),
+        ...(thinking ? { think: false } : {}),
       };
       const res = await request("/api/chat", {
         method: "POST",
