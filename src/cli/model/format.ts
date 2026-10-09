@@ -59,6 +59,6 @@ export function sessionLabel(label: string | null, sessionId: string): string {
 
 export function sourceLabel(source: ClassificationSource, confidence: number | null): string {
   if (source === "rule") return "Observed";
-  if (source === "fallback") return "Unclassified";
-  return confidence === null ? "AI · unrated" : `AI · ${Math.round(confidence * 100)}%`;
+  if (source === "fallback") return "Observed · AI unavailable";
+  return confidence === null ? "AI confidence unknown" : `AI confidence ${Math.round(confidence * 100)}%`;
 }

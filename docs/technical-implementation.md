@@ -281,7 +281,7 @@ Indexes on `last_seen_at`, `(session_id, id DESC)`, `(dedupe_key, received_at)`.
 | wezterm | `terminal.wezterm` | `wezterm cli activate-pane --pane-id N` |
 | iterm | macOS and `terminal.iterm` | `osascript -e <constant script> <uuid>`, matched on the session's `unique id` |
 | apple-terminal | macOS, Terminal.app and a tty | `osascript -e <constant script> <tty>`, matched on the tab's `tty` |
-| x11 | Linux, `DISPLAY` set, not Wayland | `xdotool windowactivate <WINDOWID>`, falling back to `wmctrl -i -a 0x…`; without `WINDOWID`, `xdotool search --pid` or `wmctrl -lp` over the ancestors |
+| x11 | Linux, `DISPLAY` set, not Wayland | `xdotool windowactivate <WINDOWID>`, falling back to `wmctrl -i -a 0x…`; without `WINDOWID`, `xdotool search --pid` or `wmctrl -lp` over the ancestors; when that process owns several windows, the session's tty is given a probe title (old title pushed on the xterm title stack and popped afterwards) and the window showing it is chosen |
 | sway / hyprland | `SWAYSOCK` / `HYPRLAND_INSTANCE_SIGNATURE` | `swaymsg [pid=N] focus` / `hyprctl dispatch focuswindow pid:N` over the ancestors |
 
 AppleScript identifiers are passed through `on run argv`, never interpolated. Every call goes through `execFile` with a 1.5 s timeout; a missing binary, a timeout and a non-zero exit become distinct failure reasons. Generic Wayland (GNOME, KDE) has no focus API, which `doctor`, `setup` and the fallback hint say explicitly.
@@ -343,7 +343,7 @@ Trust boundaries: hook forwarder → receiver (attacker-influenceable text and t
 
 Controls: loopback bind for both processes; Host and Origin checks; token in a 0600 header file; Content-Type gate; byte-counted body limit; rate limits; session and SSE caps; retention purge; schema stripping of everything not used; sanitization and secret redaction; delimited and escaped model input; schema-validated model output that can only raise priorities above rule floors and never changes status; terminal identity is allow-listed per field and only ever reaches `execFile` argument arrays (never a shell, AppleScript values only via argv) with a timeout; the hook command written to settings.json is built only from paths without quote or shell metacharacters; the TUI strips control characters from what it echoes (label query) and renders event text through Ink, which does not interpret it.
 
-Accepted residual risks: a same-uid process can read the token and forge events, including a terminal identity that makes focus select a different (but allow-listed) tmux pane or window; model verdicts can still carry misleading wording within the floors; SQLite is unencrypted beyond file mode; focusing on X11 by process ancestry can pick another window of a multi-window terminal emulator.
+Accepted residual risks: a same-uid process can read the token and forge events, including a terminal identity that makes focus select a different (but allow-listed) tmux pane or window; model verdicts can still carry misleading wording within the floors; SQLite is unencrypted beyond file mode; focusing on X11 by process ancestry can still pick another window of a multi-window terminal emulator when the session's tab is not the active tab of its window.
 
 ## 11. Testing and evaluation
 

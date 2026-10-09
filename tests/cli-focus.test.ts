@@ -27,8 +27,25 @@ function fakeRing(outcome: StepOutcome = { ok: true }): FocusContext["ringTty"] 
   return ring;
 }
 
-function ctx(platform: string, env: Record<string, string>, exec: Exec = fakeExec(), ringTty: FocusContext["ringTty"] = fakeRing()): FocusContext {
-  return { platform, env, exec, ringTty };
+function fakeTty(): FocusContext["writeTty"] & { written: string[]; title: () => string | undefined } {
+  const written: string[] = [];
+  const write = (async (_tty: string, data: string) => {
+    written.push(data);
+    return { ok: true };
+  }) as FocusContext["writeTty"] & { written: string[]; title: () => string | undefined };
+  write.written = written;
+  write.title = () => written.map((data) => /\x1b\]2;([^\x07]*)\x07/.exec(data)?.[1]).findLast(Boolean);
+  return write;
+}
+
+function ctx(
+  platform: string,
+  env: Record<string, string>,
+  exec: Exec = fakeExec(),
+  ringTty: FocusContext["ringTty"] = fakeRing(),
+  writeTty: FocusContext["writeTty"] = fakeTty(),
+): FocusContext {
+  return { platform, env, exec, ringTty, writeTty };
 }
 
 const X11 = { DISPLAY: ":0" };
@@ -155,6 +172,45 @@ describe("adapter arguments", () => {
       { file: "wmctrl", args: ["-lp"] },
       { file: "wmctrl", args: ["-i", "-a", "0x04400003"] },
     ]);
+  });
+
+  it("picks the session's window by a probe title when one terminal process owns several windows", async () => {
+    const tty = fakeTty();
+    const exec = fakeExec((call) => {
+      if (call.file === "xdotool") return { ok: false, kind: "missing", message: "xdotool is not installed" };
+      if (call.args[0] === "-lp") {
+        const sessionTitle = tty.title() ?? "✳ Claude Code";
+        return { ok: true, stdout: `0x04000006  0 100    host ~\n0x04001b95  0 100    host ${sessionTitle}\n` };
+      }
+      return { ok: true, stdout: "" };
+    });
+    const result = await focusSession({ ancestors: [200, 100], tty: "/dev/pts/3" }, ctx("linux", X11, exec, fakeRing(), tty));
+    expect(result.kind).toBe("focused");
+    expect(exec.calls.at(-1)).toEqual({ file: "wmctrl", args: ["-i", "-a", "0x04001b95"] });
+    expect(tty.written.at(0)).toMatch(/^\x1b\[22;0t/);
+    expect(tty.written.at(-1)).toBe("\x1b[23;0t");
+  });
+
+  it("reads window titles through xdotool when it found several windows", async () => {
+    const tty = fakeTty();
+    const exec = fakeExec((call) => {
+      if (call.args[0] === "search") return { ok: true, stdout: "41943046\n41950101\n" };
+      if (call.args[0] === "getwindowname") return { ok: true, stdout: call.args[1] === "41950101" ? `${tty.title()}\n` : "~\n" };
+      return { ok: true, stdout: "" };
+    });
+    await focusSession({ ancestors: [100], tty: "/dev/pts/3" }, ctx("linux", X11, exec, fakeRing(), tty));
+    expect(exec.calls.at(-1)).toEqual({ file: "xdotool", args: ["windowactivate", "41950101"] });
+  });
+
+  it("falls back to the first window when the probe title never appears", async () => {
+    const exec = fakeExec((call) => {
+      if (call.file === "xdotool") return { ok: false, kind: "missing", message: "xdotool is not installed" };
+      if (call.args[0] === "-lp") return { ok: true, stdout: "0x04000006  0 100    host ~\n0x04001b95  0 100    host other\n" };
+      return { ok: true, stdout: "" };
+    });
+    const result = await focusSession({ ancestors: [100], tty: "/dev/pts/3" }, ctx("linux", X11, exec));
+    expect(result.kind).toBe("focused");
+    expect(exec.calls.at(-1)).toEqual({ file: "wmctrl", args: ["-i", "-a", "0x04000006"] });
   });
 
   it("focuses by pid through swaymsg and hyprctl", async () => {

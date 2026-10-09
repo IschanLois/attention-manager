@@ -85,9 +85,9 @@ describe("shortId and sourceLabel", () => {
 
   it("labels classification sources", () => {
     expect(sourceLabel("rule", null)).toBe("Observed");
-    expect(sourceLabel("ai", 0.724)).toBe("AI · 72%");
-    expect(sourceLabel("ai", null)).toBe("AI · unrated");
-    expect(sourceLabel("fallback", 0.9)).toBe("Unclassified");
+    expect(sourceLabel("ai", 0.724)).toBe("AI confidence 72%");
+    expect(sourceLabel("ai", null)).toBe("AI confidence unknown");
+    expect(sourceLabel("fallback", 0.9)).toBe("Observed · AI unavailable");
   });
 });
 

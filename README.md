@@ -76,7 +76,7 @@ Global flag: `--no-color` (also `NO_COLOR=1`; colour is off automatically when o
 | `?` | Help |
 | `q`, `Ctrl-C` | Quit (the terminal is always restored, also on crashes and `SIGTERM`) |
 
-When a session newly needs you, errors, or starts critical-risk work, its row is highlighted, the header flashes, the status line says why and the bell rings. Banners appear when the receiver is unreachable (with a retry countdown) or the local model is unavailable (rule-based only); both recover on their own.
+When a session newly needs you, errors, or starts critical-risk work, its row is moved up and bolded, the header flashes, the status line says why and the bell rings. Banners appear when the receiver is unreachable (with a retry countdown) or the local model is unavailable (rule-based only); both recover on their own.
 
 ### Supported terminals
 
@@ -131,7 +131,7 @@ Beyond "who is blocked", each session carries a risk level for how consequential
 
 - **Context captured per session:** the latest prompt (first 300 characters), the last five tool actions as "Tool: command or path" snippets, and the agent's last message. Tool outputs, file contents and transcripts are never captured.
 - **Keyword rules first:** DDL (`DROP`/`ALTER`/`TRUNCATE`), `rm -rf`, force pushes, hard resets, `DELETE FROM`, production deploys, Terraform/kubectl mutations are **critical**; migrations, auth/billing/secrets, `sudo`, `curl | sh`, publishing are **high**; dependency changes, branch switches, broad refactors are **medium**; everything else is **low**.
-- **Model second:** on each new prompt and finished turn the local model rates the task. It can raise the keyword floor by at most one level and never lower it. The detail view says "Observed" for keyword matches and "AI · nn%" for model verdicts, for both the attention reason and the risk; rows show "AI nn%" in front of a model-written reason.
+- **Model second:** on each new prompt and finished turn the local model rates the task. It can raise the keyword floor by at most one level and never lower it. The detail view says "Observed" for keyword matches and "AI confidence nn%" for model verdicts, for both the attention reason and the risk; rows show "AI confidence nn%" in front of a model-written reason.
 - **Escalation:** a permission request for a critical-risk command is shown as attention priority **critical**.
 - **Ranking:** active before ended, then attention priority, then task severity, then fresh before stale, then recency.
 
@@ -221,6 +221,10 @@ pnpm attention            # run the CLI from source (Node 24 type stripping)
 pnpm verify               # lint, typecheck, build, tests (incl. the built-binary smoke test), npm pack --dry-run
 node scripts/eval-classifier.ts qwen3:1.7b   # live model evaluation (needs Ollama)
 ```
+
+### Demo
+
+`scripts/demo.sh` opens the TUI and five real Claude Code sessions, each in its own terminal window (or `--tmux` for one tmux session): one waiting on a file-write approval, one asking to `rm -rf` its build folder, one running a 45 s command, one ending its turn with a question and one that answers and goes idle. Each runs in a folder under `${ATTENTION_DEMO_DIR:-/tmp/attention-demo}` named after its scenario, which becomes its label in the TUI. The sessions use your Claude plan or API credits, nothing is approved for you, and on the first run each window asks you to trust its folder. `scripts/demo.sh --help` lists the options; `scripts/demo.sh --clean` removes the folders.
 
 The package name and binary name live only in `package.json` (`name`, `bin`); everything else, including the data directory names, derives from them.
 
