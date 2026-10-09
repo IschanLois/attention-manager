@@ -29,16 +29,19 @@ export interface ReceiverOptions {
   logLevel: LogLevel;
   logger?: Logger;
   version?: string;
+  app?: string;
 }
 
 export interface Receiver {
   port: number;
   host: string;
+  sseClients(): number;
   close(): Promise<void>;
 }
 
 export interface HealthReport {
   ok: boolean;
+  app: string;
   version: string;
   uptimeSeconds: number;
   receiver: { host: string; port: number; sseClients: number };
@@ -122,6 +125,7 @@ export async function createReceiver(options: ReceiverOptions): Promise<Receiver
   const logger = options.logger ?? createLogger(options.logLevel);
   const startedAt = Date.now();
   const version = options.version ?? "0.1.0";
+  const app = options.app ?? "attention-manager";
 
   let store: Store;
   let sqliteError: string | null = null;
@@ -168,6 +172,7 @@ export async function createReceiver(options: ReceiverOptions): Promise<Receiver
     const model = await options.classifier.health();
     return {
       ok: true,
+      app,
       version,
       uptimeSeconds: Math.round((Date.now() - startedAt) / 1000),
       receiver: { host: options.host, port: (server.address() as AddressInfo).port, sseClients: hub.size },
@@ -283,6 +288,7 @@ export async function createReceiver(options: ReceiverOptions): Promise<Receiver
   return {
     port: address.port,
     host: options.host,
+    sseClients: () => hub.size,
     async close() {
       clearInterval(purgeTimer);
       hub.closeAll();
