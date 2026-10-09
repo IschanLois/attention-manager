@@ -48,7 +48,7 @@ Observations that shaped the design:
 1. Two processes with one package: a plain Node receiver (`src/receiver`, run directly by Node 24 with type stripping) and the Next.js dashboard, which proxies `/api/*` to the receiver so the browser only talks to its own origin. No CORS anywhere.
 2. Persistence uses the built-in `node:sqlite` to avoid native builds. It is still marked experimental by Node; the warning is silenced in the scripts.
 3. Cache Components are disabled in `next.config.ts`; every dashboard route is dynamic.
-4. Classifier model: `qwen2.5:1.5b` by default (Agent A), `qwen2.5:3b` documented as the higher-quality option.
+4. Classifier model: Agent A recommended `qwen2.5:1.5b`; the live evaluation (19 fixtures) favoured `qwen3:1.7b` with thinking disabled (16/19 attention, 18/19 priority, 1.5 s median) so it is the default. `qwen2.5:1.5b` is documented as the lighter fallback; `qwen3:4b` was accurate on attention but too slow on 4 GB VRAM (6.6 s median).
 
 5. Host/Origin/token controls live in the receiver itself (not only in the dashboard proxy) because any local process or browser tab can reach loopback ports.
 6. `Stop` payloads carry `last_assistant_message`; a finished turn whose message looks like a question is rated medium by rule and sent to the classifier for refinement. Plain completions never touch the model.
@@ -89,7 +89,8 @@ Events are ordered by arrival at the receiver (hooks carry no timestamps). Dupli
 - `src/core/classifier/contract.ts`: system prompt with delimited untrusted data, few-shot examples, output parsing and clamping.
 - `src/core/classifier/ollama.ts`: `/api/chat` client with JSON-schema `format`, timeout, error classification, health probe.
 - `tests/fixtures/classifier-cases.json` plus `scripts/eval-classifier.ts` for live evaluation.
-- Live results on this machine (19 cases): qwen2.5:1.5b 15/19 correct, p50 1.2 s; qwen2.5:3b 15/19, p50 1.6 s. Both under-detect question-like turn ends, which the deterministic rule already covers.
+- Live results on this machine (19 cases): qwen3:1.7b 16/19 attention and 18/19 priority, p50 1.5 s; qwen2.5:1.5b 15/19 and 15/19, p50 1.2 s; qwen2.5:3b 15/19 and 15/19, p50 1.6 s; qwen3:4b-instruct 17/19 and 14/19, p50 6.6 s. The Qwen2.5 models under-detect question-like turn ends, which the deterministic rule already covers.
+- Thinking-capable models get `think: false`, detected once per model via `/api/show` capabilities.
 
 ### Milestone 5: security hardening (commit after review)
 

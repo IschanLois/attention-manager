@@ -34,7 +34,7 @@ cp env.example .env           # adjust ports/model if needed
 pnpm hooks:install            # writes hooks into ~/.claude/settings.json and creates data/ingest-token
 ```
 
-`pnpm hooks:install` backs up your settings to `~/.claude/settings.json.attention-backup`, appends one command hook per event (existing hooks are kept), and generates a random ingest token stored with mode 0600 in `data/ingest-token`. The hook script reads that token at run time; the receiver rejects events without it. Restart any running Claude Code sessions afterwards.
+`pnpm hooks:install` backs up your settings to `~/.claude/settings.json.attention-backup`, appends one command hook per event (existing hooks are kept), and generates a random ingest token stored with mode 0600 in `data/ingest-token` (plus `data/ingest-header`, which the hook passes to curl so the token never appears on a command line). The receiver refuses to start without a token and rejects events that lack it. Restart any running Claude Code sessions afterwards.
 
 To monitor only one project instead of every session, point the installer at that project's settings:
 
@@ -45,10 +45,21 @@ CLAUDE_SETTINGS_PATH=/path/to/project/.claude/settings.json pnpm hooks:install
 ### Optional: local model
 
 ```bash
-ollama pull qwen2.5:1.5b      # default, ~1 GB
-# or a stronger option if you have the VRAM/CPU headroom:
-ollama pull qwen2.5:3b
+ollama pull qwen3:1.7b        # default, ~1.4 GB, best accuracy/latency in our evaluation
+# lighter alternative (~1 GB, slightly lower accuracy):
+ollama pull qwen2.5:1.5b
 ```
+
+Evaluation on a GTX 1650 (19 fixture cases, `scripts/eval-classifier.ts`):
+
+| Model | needs_attention correct | priority correct | median latency |
+| --- | --- | --- | --- |
+| qwen3:1.7b | 16/19 | 18/19 | 1.5 s |
+| qwen2.5:1.5b | 15/19 | 15/19 | 1.2 s |
+| qwen2.5:3b | 15/19 | 15/19 | 1.6 s |
+| qwen3:4b-instruct | 17/19 | 14/19 | 6.6 s (does not fit 4 GB VRAM well) |
+
+The model only sees ambiguous events, and the deterministic rules already cover permission prompts, question-like turn ends and repeated failures, so misses on those fixtures do not change the dashboard.
 
 Set `OLLAMA_MODEL` in `.env` to switch models. A user-local Ollama (no root) works too:
 
@@ -57,7 +68,7 @@ mkdir -p ~/.local/opt/ollama && cd ~/.local/opt/ollama
 curl -L -o ollama.tar.zst https://github.com/ollama/ollama/releases/latest/download/ollama-linux-amd64.tar.zst
 tar --zstd -xf ollama.tar.zst
 OLLAMA_MODELS=$PWD/models ./bin/ollama serve &
-OLLAMA_MODELS=$PWD/models ./bin/ollama pull qwen2.5:1.5b
+OLLAMA_MODELS=$PWD/models ./bin/ollama pull qwen3:1.7b
 ```
 
 ## Run
@@ -92,13 +103,15 @@ All settings are environment variables (see `env.example`):
 | `PORT` | `3000` | Dashboard port. |
 | `DATABASE_PATH` | `./data/attention.db` | SQLite file; `:memory:` for ephemeral. |
 | `INGEST_TOKEN_PATH` | `./data/ingest-token` | Shared secret between hook script and receiver. `ATTENTION_INGEST_TOKEN` overrides. |
-| `OLLAMA_URL` / `OLLAMA_MODEL` | `http://127.0.0.1:11434` / `qwen2.5:1.5b` | Local model runtime and model name. |
+| `OLLAMA_URL` / `OLLAMA_MODEL` | `http://127.0.0.1:11434` / `qwen3:1.7b` | Local model runtime and model name. |
 | `CLASSIFY_TIMEOUT_MS` | `8000` | Inference timeout; on timeout the rule-based state stays. |
 | `STALE_AFTER_MS` | `600000` | Sessions without events for this long are flagged stale. |
 | `EVENT_HISTORY_LIMIT` | `50` | Events kept per session. |
 | `DEDUPE_WINDOW_MS` | `5000` | Identical events inside this window are dropped. |
 | `RATE_LIMIT_PER_SESSION` / `RATE_LIMIT_GLOBAL` | `120` / `1200` | Events per minute. |
-| `MAX_BODY_BYTES` | `65536` | Maximum request body. |
+| `MAX_BODY_BYTES` | `262144` | Maximum request body. |
+| `RETENTION_DAYS` / `MAX_SESSIONS` | `7` / `1000` | Purge ended sessions after this many days; cap tracked sessions. |
+| `ATTENTION_ALLOW_NO_TOKEN` | unset | Set to `1` to run the receiver without an ingest token (not recommended). |
 | `LOG_LEVEL` | `info` | `error`, `warn`, `info`, `debug`. Payloads are never logged. |
 
 ## Session states and priorities
