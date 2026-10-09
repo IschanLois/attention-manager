@@ -112,6 +112,43 @@ describe("normalizeHookEvent", () => {
     expect(result.event.classifierText).toBe("Should I delete the old migrations?");
   });
 
+  it("gives distinct dedupe keys to turn ends and prompts of different turns", () => {
+    const a = normalize({ ...fx.stop(), prompt_id: "p1" });
+    const b = normalize({ ...fx.stop(), prompt_id: "p2" });
+    const c = normalize({ ...fx.stop(fx.SESSION_A, "other answer"), prompt_id: "p1" });
+    const p1 = normalize({ ...fx.userPromptSubmit(), prompt_id: "p1" });
+    const p2 = normalize({ ...fx.userPromptSubmit(), prompt_id: "p2" });
+    expect(a.ok && b.ok && a.event.dedupeKey).not.toBe(b.ok && b.event.dedupeKey);
+    expect(a.ok && c.ok && a.event.dedupeKey).not.toBe(c.ok && c.event.dedupeKey);
+    expect(p1.ok && p2.ok && p1.event.dedupeKey).not.toBe(p2.ok && p2.event.dedupeKey);
+  });
+
+  it("marks subagent stops and compactions as exempt from deduplication", () => {
+    const sub = normalize(fx.subagentStop());
+    expect(sub.ok && sub.event.dedupeKey).toBeNull();
+  });
+
+  it("keeps long MCP tool names and tool ids intact", () => {
+    const r = normalize({ ...fx.permissionRequest(), tool_name: "mcp__linear-server__create_attachment_from_upload", tool_use_id: "toolu_" + "a".repeat(50) });
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.event.toolName).toBe("mcp__linear-server__create_attachment_from_upload");
+    expect(r.event.toolUseId).toBe("toolu_" + "a".repeat(50));
+    expect(r.event.summary).toContain("mcp__linear-server__create_attachment_from_upload");
+  });
+
+  it("truncates oversized free-text fields instead of rejecting the event", () => {
+    const r = normalize({ ...fx.stop(fx.SESSION_A, "x".repeat(200_000)) });
+    expect(r.ok).toBe(true);
+    const f = normalize({ ...fx.postToolUseFailure(), error: "boom ".repeat(50_000) });
+    expect(f.ok && f.event.classifierText!.length).toBeLessThanOrEqual(400);
+  });
+
+  it("carries the session start source", () => {
+    const r = normalize({ ...fx.sessionStart(), source: "compact" });
+    expect(r.ok && r.event.source).toBe("compact");
+  });
+
   it("produces identical dedupe keys for identical events and different keys otherwise", () => {
     const a = normalize(fx.permissionRequest());
     const b = normalize(fx.permissionRequest());

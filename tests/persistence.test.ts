@@ -55,10 +55,10 @@ describe("store", () => {
 
   it("detects duplicate events by dedupe key within a window", () => {
     const e = ev(fx.permissionRequest());
-    expect(store.hasRecentEvent(e.dedupeKey, Date.parse(e.receivedAt), 60_000)).toBe(false);
+    expect(store.hasRecentEvent(e.dedupeKey!, Date.parse(e.receivedAt), 60_000)).toBe(false);
     store.insertEvent(e);
-    expect(store.hasRecentEvent(e.dedupeKey, Date.parse(e.receivedAt) + 10_000, 60_000)).toBe(true);
-    expect(store.hasRecentEvent(e.dedupeKey, Date.parse(e.receivedAt) + 120_000, 60_000)).toBe(false);
+    expect(store.hasRecentEvent(e.dedupeKey!, Date.parse(e.receivedAt) + 10_000, 60_000)).toBe(true);
+    expect(store.hasRecentEvent(e.dedupeKey!, Date.parse(e.receivedAt) + 120_000, 60_000)).toBe(false);
   });
 
   it("purges ended sessions and events older than the retention window", () => {

@@ -1,5 +1,5 @@
 import { randomBytes } from "node:crypto";
-import { chmodSync, copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { chmodSync, copyFileSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -53,8 +53,13 @@ function withoutOurHooks(hooks: Record<string, HookGroup[]> | undefined): Record
   const result: Record<string, HookGroup[]> = {};
   for (const [event, groups] of Object.entries(hooks ?? {})) {
     const kept = groups
-      .map((group) => ({ ...group, hooks: (group.hooks ?? []).filter((h) => !isOurs(h)) }))
-      .filter((group) => group.hooks.length > 0);
+      .map((group) => {
+        const hooks = group.hooks ?? [];
+        const remaining = hooks.filter((h) => !isOurs(h));
+        const emptiedByUs = remaining.length === 0 && hooks.length > 0;
+        return emptiedByUs ? null : { ...group, hooks: remaining };
+      })
+      .filter((group): group is HookGroup => group !== null);
     if (kept.length > 0) result[event] = kept;
   }
   return result;
@@ -62,13 +67,17 @@ function withoutOurHooks(hooks: Record<string, HookGroup[]> | undefined): Record
 
 function writeSettings(settings: Settings): void {
   mkdirSync(dirname(settingsPath), { recursive: true });
-  if (existsSync(settingsPath)) copyFileSync(settingsPath, `${settingsPath}.attention-backup`);
-  writeFileSync(settingsPath, JSON.stringify(settings, null, 2) + "\n");
+  const backupPath = `${settingsPath}.attention-backup`;
+  if (existsSync(settingsPath) && !existsSync(backupPath)) copyFileSync(settingsPath, backupPath);
+  const tmpPath = `${settingsPath}.attention-tmp`;
+  writeFileSync(tmpPath, JSON.stringify(settings, null, 2) + "\n");
+  renameSync(tmpPath, settingsPath);
 }
 
 function ensureToken(): string {
   mkdirSync(dirname(tokenPath), { recursive: true, mode: 0o700 });
-  const token = existsSync(tokenPath) ? readFileSync(tokenPath, "utf8").trim() : randomBytes(24).toString("base64url");
+  const existing = existsSync(tokenPath) ? readFileSync(tokenPath, "utf8").trim() : "";
+  const token = existing || randomBytes(24).toString("base64url");
   writeFileSync(tokenPath, token + "\n", { mode: 0o600 });
   chmodSync(tokenPath, 0o600);
   writeFileSync(headerPath, `x-attention-token: ${token}\n`, { mode: 0o600 });
@@ -88,7 +97,7 @@ function install(): void {
   writeSettings({ ...settings, hooks });
   console.log(`Installed attention-manager hooks for ${HOOK_EVENTS.length} events in ${settingsPath}`);
   console.log(`Ingest token: ${tokenPath} and ${headerPath} (mode 0600)`);
-  console.log(`Backup of previous settings: ${settingsPath}.attention-backup`);
+  console.log(`Backup of the settings before the first install: ${settingsPath}.attention-backup`);
   console.log("Restart running Claude Code sessions to pick up the hooks.");
 }
 

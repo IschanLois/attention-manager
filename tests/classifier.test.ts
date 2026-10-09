@@ -143,6 +143,16 @@ describe("createOllamaClassifier", () => {
     await expect(classifier.warmUp!()).resolves.toBeUndefined();
   });
 
+  it("times out when the response body stalls after headers arrive", async () => {
+    const stalled = withFetch(async () => new Response(new ReadableStream({ start() { /* never closes */ } }), { status: 200 }));
+    await expect(stalled.classify(input)).rejects.toMatchObject({ kind: "timeout" });
+  });
+
+  it("reports model_missing on a non-JSON 404", async () => {
+    const missing = withFetch(async () => new Response("not found", { status: 404 }));
+    await expect(missing.classify(input)).rejects.toMatchObject({ kind: "model_missing" });
+  });
+
   it("reports health with model presence", async () => {
     const classifier = withFetch(async (url) => {
       if (url.endsWith("/api/tags")) return new Response(JSON.stringify({ models: [{ name: "test-model:latest" }] }), { status: 200 });

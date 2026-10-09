@@ -39,6 +39,11 @@ export class SseHub {
     }
   }
 
+  send(res: ServerResponse, event: string, data: unknown): void {
+    if (!this.clients.has(res) || res.writableEnded || res.destroyed) return;
+    res.write(format(event, data));
+  }
+
   broadcast(event: string, data: unknown): void {
     this.broadcastRaw(format(event, data));
   }

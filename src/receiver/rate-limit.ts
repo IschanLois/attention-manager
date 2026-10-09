@@ -16,7 +16,8 @@ export class TokenBucketLimiter {
 
   take(key: string, nowMs: number): boolean {
     const bucket = this.buckets.get(key) ?? { tokens: this.capacity, updatedAt: nowMs };
-    const refilled = Math.min(this.capacity, bucket.tokens + (nowMs - bucket.updatedAt) * this.refillPerMs);
+    const elapsed = Math.max(0, nowMs - bucket.updatedAt);
+    const refilled = Math.min(this.capacity, bucket.tokens + elapsed * this.refillPerMs);
     const allowed = refilled >= 1;
     this.buckets.set(key, { tokens: allowed ? refilled - 1 : refilled, updatedAt: nowMs });
     if (this.buckets.size > 10_000) this.evict(nowMs);

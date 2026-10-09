@@ -29,12 +29,19 @@ export function createOllamaClassifier(options: OllamaOptions): ClassifierPort {
   const fetchImpl = options.fetchImpl ?? fetch;
   const base = options.url.replace(/\/+$/, "");
   let supportsThinking: boolean | null = null;
+  let thinkingProbeFailedAt = 0;
 
-  async function request(path: string, init: RequestInit, timeoutMs: number): Promise<Response> {
+  // The whole exchange, body included, runs under one timeout so a stalled body cannot hang the queue.
+  async function request(path: string, init: RequestInit, timeoutMs: number): Promise<{ status: number; ok: boolean; text: string }> {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
     try {
-      return await fetchImpl(`${base}${path}`, { ...init, signal: controller.signal });
+      const res = await fetchImpl(`${base}${path}`, { ...init, signal: controller.signal });
+      const aborted = new Promise<never>((_, reject) => {
+        controller.signal.addEventListener("abort", () => reject(new DOMException("aborted", "AbortError")), { once: true });
+      });
+      const text = await Promise.race([res.text(), aborted]);
+      return { status: res.status, ok: res.ok, text };
     } catch (error) {
       if (error instanceof Error && error.name === "AbortError") throw new ClassifierError(`no response within ${timeoutMs}ms`, "timeout");
       throw new ClassifierError("model runtime unreachable", "unreachable");
@@ -45,15 +52,17 @@ export function createOllamaClassifier(options: OllamaOptions): ClassifierPort {
 
   async function detectThinking(): Promise<boolean> {
     if (supportsThinking !== null) return supportsThinking;
+    if (Date.now() - thinkingProbeFailedAt < 30_000) return false;
     try {
       const res = await request("/api/show", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ model: options.model }),
       }, Math.min(options.timeoutMs, 3000));
-      const info = (await res.json()) as { capabilities?: unknown };
+      const info = JSON.parse(res.text) as { capabilities?: unknown };
       supportsThinking = Array.isArray(info.capabilities) && info.capabilities.includes("thinking");
     } catch {
+      thinkingProbeFailedAt = Date.now();
       return false;
     }
     return supportsThinking;
@@ -76,13 +85,13 @@ export function createOllamaClassifier(options: OllamaOptions): ClassifierPort {
         body: JSON.stringify(body),
       }, timeoutMs);
 
+      if (res.status === 404) throw new ClassifierError(`model ${options.model} not installed`, "model_missing");
       let payload: ChatResponse;
       try {
-        payload = (await res.json()) as ChatResponse;
+        payload = JSON.parse(res.text) as ChatResponse;
       } catch {
         throw new ClassifierError(`invalid response (${res.status})`, "invalid_output");
       }
-      if (res.status === 404) throw new ClassifierError(`model ${options.model} not installed`, "model_missing");
       if (!res.ok) {
         const detail = typeof payload.error === "string" ? payload.error.slice(0, 120) : `HTTP ${res.status}`;
         throw new ClassifierError(detail, /memory|resource/i.test(detail) ? "rate_limited" : "http_error");
@@ -110,7 +119,7 @@ export function createOllamaClassifier(options: OllamaOptions): ClassifierPort {
           report.error = `HTTP ${res.status}`;
           return report;
         }
-        const tags = (await res.json()) as TagsResponse;
+        const tags = JSON.parse(res.text) as TagsResponse;
         report.reachable = true;
         const names = (tags.models ?? []).map((m) => (typeof m.name === "string" ? m.name : "")).filter(Boolean);
         report.modelInstalled = names.some((n) => modelMatches(n, options.model));

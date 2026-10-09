@@ -15,16 +15,26 @@ if [ -r "$TOKEN_FILE" ]; then
   TOKEN="$(head -c 256 "$TOKEN_FILE" | tr -d '\r\n')"
 fi
 
+# The receiver never reads prompt text, tool inputs/outputs or transcript paths,
+# so drop them before they cross the socket when jq is available.
+minimize() {
+  if command -v jq >/dev/null 2>&1; then
+    jq -c 'del(.tool_input, .tool_response, .prompt, .transcript_path)' 2>/dev/null || cat
+  else
+    cat
+  fi
+}
+
 # The token travels in a header file (curl -H @file) so it never appears in argv.
 if command -v curl >/dev/null 2>&1 && [ -r "$HEADER_FILE" ]; then
-  curl --silent --show-error --output /dev/null \
+  minimize | curl --silent --show-error --output /dev/null \
     --max-time "$MAX_TIME" --connect-timeout 1 \
     --header "content-type: application/json" \
     --header @"$HEADER_FILE" \
     --data-binary @- \
     "$RECEIVER_URL/api/events" >/dev/null 2>&1 || true
 elif command -v curl >/dev/null 2>&1 && [ -z "$TOKEN" ]; then
-  curl --silent --show-error --output /dev/null \
+  minimize | curl --silent --show-error --output /dev/null \
     --max-time "$MAX_TIME" --connect-timeout 1 \
     --header "content-type: application/json" \
     --data-binary @- \

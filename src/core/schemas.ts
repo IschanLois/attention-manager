@@ -19,6 +19,7 @@ export const SUPPORTED_HOOK_EVENTS = [
 export type HookEventName = (typeof SUPPORTED_HOOK_EVENTS)[number];
 
 const boundedString = (max: number) => z.string().max(max);
+const truncatedString = (max: number) => z.preprocess((v) => (typeof v === "string" && v.length > max ? v.slice(0, max) : v), z.string());
 
 export const hookEventSchema = z.object({
   session_id: z.string().regex(SESSION_ID_PATTERN),
@@ -26,17 +27,18 @@ export const hookEventSchema = z.object({
   cwd: boundedString(4096).optional(),
   source: boundedString(64).optional(),
   reason: boundedString(64).optional(),
-  prompt: boundedString(100_000).optional(),
+  prompt_id: boundedString(128).optional(),
+  prompt: truncatedString(100_000).optional(),
   tool_name: boundedString(128).optional(),
   tool_use_id: boundedString(128).optional(),
   tool_input: z.unknown().optional(),
   tool_response: z.unknown().optional(),
-  error: boundedString(100_000).optional(),
+  error: truncatedString(100_000).optional(),
   is_interrupt: z.boolean().optional(),
   message: boundedString(10_000).optional(),
   notification_type: boundedString(64).optional(),
   stop_hook_active: z.boolean().optional(),
-  last_assistant_message: boundedString(100_000).optional(),
+  last_assistant_message: truncatedString(100_000).optional(),
   trigger: boundedString(64).optional(),
 });
 
@@ -95,7 +97,9 @@ export interface NormalizedEvent {
   receivedAt: string;
   label: string | null;
   summary: string | null;
-  dedupeKey: string;
+  dedupeKey: string | null;
+  promptId: string | null;
+  source: string | null;
   toolName: string | null;
   toolUseId: string | null;
   notificationType: string | null;
@@ -120,6 +124,7 @@ export interface Session {
   endedAt: string | null;
   recentFailureTimes: string[];
   pendingPermissionToolUseId: string | null;
+  eventSeq: number;
 }
 
 export interface StoredEvent {

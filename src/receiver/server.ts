@@ -61,10 +61,10 @@ class HttpError extends Error {
   }
 }
 
-function hostIsLoopback(hostHeader: string | undefined): boolean {
+function hostIsLoopback(hostHeader: string | undefined, boundHost: string): boolean {
   if (!hostHeader) return false;
   const host = hostHeader.replace(/:\d+$/, "");
-  return ALLOWED_HOSTS.has(host);
+  return ALLOWED_HOSTS.has(host) || host === boundHost || host === `[${boundHost}]`;
 }
 
 function originIsLoopback(origin: string | undefined): boolean {
@@ -90,11 +90,15 @@ function readBody(req: IncomingMessage, maxBytes: number): Promise<string> {
     if (declared > maxBytes) return reject(new HttpError(413, "body too large"));
     const chunks: Buffer[] = [];
     let size = 0;
+    let rejected = false;
     req.on("data", (chunk: Buffer) => {
+      if (rejected) return;
       size += chunk.length;
       if (size > maxBytes) {
+        rejected = true;
+        chunks.length = 0;
+        req.resume();
         reject(new HttpError(413, "body too large"));
-        req.destroy();
         return;
       }
       chunks.push(chunk);
@@ -208,7 +212,7 @@ export async function createReceiver(options: ReceiverOptions): Promise<Receiver
   }
 
   async function route(req: IncomingMessage, res: ServerResponse): Promise<void> {
-    if (!hostIsLoopback(req.headers.host)) throw new HttpError(403, "host not allowed");
+    if (!hostIsLoopback(req.headers.host, options.host)) throw new HttpError(403, "host not allowed");
     if (!originIsLoopback(req.headers.origin)) throw new HttpError(403, "origin not allowed");
     const url = new URL(req.url ?? "/", "http://localhost");
     const method = req.method ?? "GET";
@@ -240,10 +244,10 @@ export async function createReceiver(options: ReceiverOptions): Promise<Receiver
     if (url.pathname === "/api/stream" && method === "GET") {
       if (hub.full) throw new HttpError(503, "too many stream clients");
       const now = Date.now();
-      hub.add(res, [
-        { event: "snapshot", data: toSnapshot(pipeline.listSessions(), now, options.staleAfterMs) },
-        { event: "health", data: await health() },
-      ]);
+      hub.add(res, [{ event: "snapshot", data: toSnapshot(pipeline.listSessions(), now, options.staleAfterMs) }]);
+      health()
+        .then((report) => hub.send(res, "health", report))
+        .catch(() => undefined);
       return;
     }
     throw new HttpError(404, "not found");
@@ -254,8 +258,10 @@ export async function createReceiver(options: ReceiverOptions): Promise<Receiver
       const status = error instanceof HttpError ? error.status : 500;
       const message = error instanceof HttpError ? error.message : "internal error";
       if (status === 500) logger.error("request failed", { error: error instanceof Error ? error.message.slice(0, 200) : String(error) });
-      if (!res.headersSent) sendJson(res, status, { error: message });
-      else res.end();
+      if (!res.headersSent) {
+        if (status === 413) res.setHeader("connection", "close");
+        sendJson(res, status, { error: message });
+      } else res.end();
     });
   });
   server.requestTimeout = 10_000;
@@ -279,8 +285,8 @@ export async function createReceiver(options: ReceiverOptions): Promise<Receiver
       clearInterval(purgeTimer);
       hub.closeAll();
       await pipeline.close();
-      await new Promise<void>((resolve) => server.close(() => resolve()));
       server.closeAllConnections();
+      await new Promise<void>((resolve) => server.close(() => resolve()));
       store.close();
     },
   };

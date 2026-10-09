@@ -133,6 +133,38 @@ describe("reduceSession: attention rules", () => {
     expect(stopped.priority).toBe("low");
   });
 
+  it("keeps a pending permission when a different tool finishes or fails", () => {
+    const base = run([ev(fx.sessionStart(fx.SESSION_B)), ev(fx.preToolUse(fx.SESSION_B, "A")), ev(fx.preToolUse(fx.SESSION_B, "B")), ev(fx.permissionRequest(fx.SESSION_B, "B"))]);
+    const afterOtherEnd = reduceSession(base, ev(fx.postToolUse(fx.SESSION_B, "A")));
+    expect(afterOtherEnd.status).toBe("needs_attention");
+    expect(afterOtherEnd.priority).toBe("high");
+    expect(afterOtherEnd.pendingPermissionToolUseId).toBe("B");
+    const afterOtherFailure = reduceSession(base, ev(fx.postToolUseFailure(fx.SESSION_B, "A")));
+    expect(afterOtherFailure.status).toBe("needs_attention");
+    expect(afterOtherFailure.recentFailureTimes).toHaveLength(1);
+    expect(reduceSession(base, ev(fx.postToolUse(fx.SESSION_B, "B"))).status).toBe("working");
+  });
+
+  it("does not let an unknown notification demote a pending permission", () => {
+    const base = run([ev(fx.sessionStart(fx.SESSION_B)), ev(fx.permissionRequest())]);
+    const s = reduceSession(base, ev(fx.unknownNotification()));
+    expect(s.status).toBe("needs_attention");
+    expect(s.priority).toBe("high");
+    expect(s.pendingPermissionToolUseId).toBe("toolu_01HNJhjMNUijyBRhiiwRiBJC");
+    expect(s.attentionReason).toContain("Bash");
+  });
+
+  it("treats a compaction restart as a no-op and keeps the first start time on resume", () => {
+    const first = ev(fx.sessionStart());
+    const base = run([first, ev(fx.preToolUse()), ev(fx.permissionRequest(fx.SESSION_A))]);
+    const afterCompact = reduceSession(base, ev({ ...fx.sessionStart(), source: "compact" }));
+    expect(afterCompact.status).toBe("needs_attention");
+    expect(afterCompact.startedAt).toBe(first.receivedAt);
+    const afterResume = reduceSession(base, ev({ ...fx.sessionStart(), source: "resume" }));
+    expect(afterResume.status).toBe("starting");
+    expect(afterResume.startedAt).toBe(first.receivedAt);
+  });
+
   it("marks an idle_prompt notification as waiting for input with medium priority", () => {
     const s = run([ev(fx.sessionStart(fx.SESSION_B)), ev(fx.stop(fx.SESSION_B)), ev(fx.idleNotification())]);
     expect(s.status).toBe("needs_attention");
@@ -264,6 +296,17 @@ describe("applyClassification", () => {
       needs_attention: true, priority: "critical", reason: "Asks a question.", evidence: [], confidence: 0.9,
     }, at);
     expect(out.priority).toBe("high");
+  });
+
+  it("is ignored when a same-type event arrived in the same millisecond", () => {
+    const first = ev(fx.unknownNotification(fx.SESSION_B, "first"));
+    const second = ev(fx.unknownNotification(fx.SESSION_B, "second"), 0);
+    const afterFirst = reduceSession(null, first);
+    const s = reduceSession(afterFirst, second);
+    const out = applyClassification(s, first, { needs_attention: true, priority: "high", reason: "x", evidence: [], confidence: 0.9 }, at, afterFirst.eventSeq);
+    expect(out).toBe(s);
+    const applied = applyClassification(s, second, { needs_attention: true, priority: "high", reason: "x", evidence: [], confidence: 0.9 }, at, s.eventSeq);
+    expect(applied.classificationSource).toBe("ai");
   });
 
   it("is ignored when the session has moved on since the triggering event", () => {

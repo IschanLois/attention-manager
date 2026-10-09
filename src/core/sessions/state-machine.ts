@@ -28,7 +28,12 @@ function newSession(event: NormalizedEvent): Session {
     endedAt: null,
     recentFailureTimes: [],
     pendingPermissionToolUseId: null,
+    eventSeq: 0,
   };
+}
+
+function affectsOtherTool(session: Session, event: NormalizedEvent): boolean {
+  return session.status === "needs_attention" && session.pendingPermissionToolUseId !== null && event.toolUseId !== null && event.toolUseId !== session.pendingPermissionToolUseId;
 }
 
 function clearAttention(session: Session): Session {
@@ -65,16 +70,19 @@ export function looksLikeQuestion(text: string | null): boolean {
 function applyEvent(session: Session, event: NormalizedEvent): Session {
   switch (event.type) {
     case "session_start":
-      return { ...withRule(session, "starting", "none", null), startedAt: event.receivedAt, endedAt: null, recentFailureTimes: [] };
+      if (event.source === "compact" && session.status !== "ended") return session;
+      return { ...withRule(session, "starting", "none", null), startedAt: session.startedAt ?? event.receivedAt, endedAt: null, recentFailureTimes: [] };
     case "prompt":
     case "tool_start":
       return working(session);
     case "tool_end":
       if (session.status === "completed" && session.pendingPermissionToolUseId === null) return session;
+      if (affectsOtherTool(session, event)) return session;
       return working(session);
     case "tool_failure": {
       if (event.isInterrupt) return withRule(session, "idle", "low", "Interrupted by the user");
       const failures = [...recentFailures(session, event.receivedAt), event.receivedAt];
+      if (affectsOtherTool(session, event)) return { ...session, recentFailureTimes: failures };
       const tool = event.toolName ?? "A tool";
       const escalated = failures.length >= FAILURE_ESCALATION_COUNT;
       const reason = escalated
@@ -115,7 +123,8 @@ function applyNotification(session: Session, event: NormalizedEvent): Session {
     case "auth_success":
       return session;
     default:
-      return { ...withRule(session, session.status, "medium", "Unclassified notification"), classificationSource: "fallback" };
+      if (session.status === "needs_attention" && session.classificationSource === "rule") return session;
+      return { ...withRule(session, session.status, higherPriority(session.priority, "medium"), "Unclassified notification"), classificationSource: "fallback" };
   }
 }
 
@@ -126,6 +135,7 @@ export function reduceSession(previous: Session | null, event: NormalizedEvent):
     label: event.label ?? base.label,
     lastSeenAt: event.receivedAt,
     lastEventType: event.type,
+    eventSeq: base.eventSeq + 1,
   };
   if (stamped.status === "ended" && event.type !== "session_start") return stamped;
   return applyEvent(stamped, event);
@@ -166,9 +176,14 @@ function higherPriority(a: Priority, b: Priority): Priority {
   return PRIORITY_RANK[a] <= PRIORITY_RANK[b] ? a : b;
 }
 
-export function applyClassification(session: Session, trigger: NormalizedEvent, result: Classification, classifiedAt: string): Session {
+export function isCurrentTrigger(session: Session, trigger: NormalizedEvent, triggerSeq?: number): boolean {
+  if (triggerSeq !== undefined) return session.eventSeq === triggerSeq;
+  return session.lastSeenAt === trigger.receivedAt && session.lastEventType === trigger.type;
+}
+
+export function applyClassification(session: Session, trigger: NormalizedEvent, result: Classification, classifiedAt: string, triggerSeq?: number): Session {
   if (session.status === "ended") return session;
-  if (session.lastSeenAt !== trigger.receivedAt || session.lastEventType !== trigger.type) return session;
+  if (!isCurrentTrigger(session, trigger, triggerSeq)) return session;
 
   let priority: Priority = result.needs_attention ? result.priority : "none";
   if (result.needs_attention && priority === "none") priority = "low";
@@ -187,8 +202,8 @@ export function applyClassification(session: Session, trigger: NormalizedEvent, 
   };
 }
 
-export function recordClassificationFailure(session: Session, trigger: NormalizedEvent, error: string, at: string): Session {
-  if (session.lastSeenAt !== trigger.receivedAt || session.lastEventType !== trigger.type) return session;
+export function recordClassificationFailure(session: Session, trigger: NormalizedEvent, error: string, at: string, triggerSeq?: number): Session {
+  if (!isCurrentTrigger(session, trigger, triggerSeq)) return session;
   return { ...session, classificationSource: "fallback", classificationError: error, classifiedAt: at };
 }
 

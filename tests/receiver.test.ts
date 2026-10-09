@@ -226,6 +226,55 @@ describe("receiver", () => {
     expect(body.events.filter((e: { eventType: string }) => e.eventType === "permission_request")).toHaveLength(1);
   });
 
+  it("does not drop a second Stop of a later turn inside the dedupe window", async () => {
+    await post(fx.sessionStart());
+    await post({ ...fx.stop(), prompt_id: "p1" });
+    await post({ ...fx.userPromptSubmit(), prompt_id: "p2" });
+    const res = await post({ ...fx.stop(), prompt_id: "p2" });
+    expect(await res.json()).toEqual({ accepted: true });
+    expect((await sessions()).sessions[0]!.status).toBe("completed");
+  });
+
+  it("answers 413 to a chunked body over the limit instead of resetting the connection", async () => {
+    const { request } = await import("node:http");
+    const status = await new Promise<number>((resolve, reject) => {
+      const req = request(
+        { host: "127.0.0.1", port: receiver.port, method: "POST", path: "/api/events", headers: { "content-type": "application/json", "x-attention-token": TOKEN, "transfer-encoding": "chunked" } },
+        (res) => { res.resume(); resolve(res.statusCode ?? 0); },
+      );
+      req.on("error", reject);
+      req.write("{\"session_id\":\"" + "a".repeat(3000));
+      req.write("b".repeat(3000));
+      req.end("\"}");
+    });
+    expect(status).toBe(413);
+  });
+
+  it("closes cleanly while a classification is in flight", async () => {
+    let release: (() => void) | null = null;
+    const slow = await createReceiver({
+      host: "127.0.0.1", port: 0, databasePath: ":memory:", ingestToken: TOKEN, maxBodyBytes: 4096,
+      eventHistoryLimit: 20, staleAfterMs: 600_000, dedupeWindowMs: 0,
+      rateLimit: { perSessionPerMinute: 60, globalPerMinute: 200 }, logLevel: "error",
+      classifier: {
+        classify: () => new Promise((resolve) => { release = () => resolve({ needs_attention: true, priority: "high", reason: "late", evidence: [], confidence: 0.5 }); }),
+        async health() { return { reachable: true, modelInstalled: true, model: "m", url: "u", error: null }; },
+      },
+    });
+    const url = `http://127.0.0.1:${slow.port}`;
+    await fetch(`${url}/api/events`, { method: "POST", headers: { "content-type": "application/json", "x-attention-token": TOKEN }, body: JSON.stringify(fx.unknownNotification()) });
+    await new Promise((r) => setTimeout(r, 20));
+    const rejections: unknown[] = [];
+    const onRejection = (reason: unknown) => rejections.push(reason);
+    process.on("unhandledRejection", onRejection);
+    const closing = slow.close();
+    release!();
+    await closing;
+    await new Promise((r) => setTimeout(r, 20));
+    process.off("unhandledRejection", onRejection);
+    expect(rejections).toEqual([]);
+  });
+
   it("rate limits floods per session", async () => {
     const flooded = await createReceiver({
       host: "127.0.0.1",

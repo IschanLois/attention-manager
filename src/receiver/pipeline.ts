@@ -32,13 +32,14 @@ export interface PipelineOptions {
 interface PendingJob {
   session: Session;
   event: NormalizedEvent;
+  seq: number;
 }
 
 export class IngestPipeline {
   private readonly sessions = new Map<string, Session>();
   private readonly pendingJobs = new Map<string, PendingJob>();
   private readonly queue: string[] = [];
-  private draining = false;
+  private drainPromise: Promise<void> | null = null;
   private closed = false;
   private readonly now: () => number;
 
@@ -67,7 +68,7 @@ export class IngestPipeline {
         : { status: "rejected", reason: "invalid_payload" };
     }
     const event = normalized.event;
-    if (this.options.dedupeWindowMs > 0 && this.options.store.hasRecentEvent(event.dedupeKey, nowMs, this.options.dedupeWindowMs)) {
+    if (this.options.dedupeWindowMs > 0 && event.dedupeKey && this.options.store.hasRecentEvent(event.dedupeKey, nowMs, this.options.dedupeWindowMs)) {
       return { status: "ignored", reason: "duplicate" };
     }
 
@@ -115,6 +116,7 @@ export class IngestPipeline {
     this.closed = true;
     this.pendingJobs.clear();
     this.queue.length = 0;
+    if (this.drainPromise) await this.drainPromise;
   }
 
   private commit(session: Session): void {
@@ -125,24 +127,31 @@ export class IngestPipeline {
 
   private enqueue(session: Session, event: NormalizedEvent): void {
     const replacing = this.pendingJobs.has(session.sessionId);
-    this.pendingJobs.set(session.sessionId, { session, event });
+    this.pendingJobs.set(session.sessionId, { session, event, seq: session.eventSeq });
     if (!replacing) this.queue.push(session.sessionId);
     void this.drain();
   }
 
-  private async drain(): Promise<void> {
-    if (this.draining) return;
-    this.draining = true;
-    try {
-      while (this.queue.length > 0 && !this.closed) {
-        const sessionId = this.queue.shift()!;
-        const job = this.pendingJobs.get(sessionId);
-        this.pendingJobs.delete(sessionId);
-        if (job) await this.runJob(job);
+  private drain(): Promise<void> {
+    if (this.drainPromise) return this.drainPromise;
+    this.drainPromise = (async () => {
+      try {
+        while (this.queue.length > 0 && !this.closed) {
+          const sessionId = this.queue.shift()!;
+          const job = this.pendingJobs.get(sessionId);
+          this.pendingJobs.delete(sessionId);
+          if (!job) continue;
+          try {
+            await this.runJob(job);
+          } catch (error) {
+            this.options.logger.error("classification job crashed", { error: error instanceof Error ? error.message.slice(0, 200) : String(error) });
+          }
+        }
+      } finally {
+        this.drainPromise = null;
       }
-    } finally {
-      this.draining = false;
-    }
+    })();
+    return this.drainPromise;
   }
 
   private async classifyWithRetry(input: ClassifierInput, job: PendingJob) {
@@ -150,7 +159,7 @@ export class IngestPipeline {
       return await this.options.classifier.classify(input);
     } catch (error) {
       const timedOut = error instanceof ClassifierError && error.kind === "timeout";
-      const stillCurrent = () => this.sessions.get(job.session.sessionId)?.lastSeenAt === job.event.receivedAt;
+      const stillCurrent = () => this.sessions.get(job.session.sessionId)?.eventSeq === job.seq;
       if (!timedOut || this.closed || !stillCurrent()) throw error;
       this.options.logger.debug("classification timed out; retrying once", { sessionId: job.session.sessionId });
       await new Promise((resolve) => setTimeout(resolve, this.options.retryDelayMs ?? 2000));
@@ -161,7 +170,7 @@ export class IngestPipeline {
 
   private async runJob(job: PendingJob): Promise<void> {
     const current = this.sessions.get(job.session.sessionId);
-    if (!current || current.lastSeenAt !== job.event.receivedAt || current.status === "ended") return;
+    if (!current || current.eventSeq !== job.seq || current.status === "ended") return;
     const input = {
       eventType: job.event.type,
       notificationType: job.event.notificationType,
@@ -171,17 +180,19 @@ export class IngestPipeline {
     };
     try {
       const result = await this.classifyWithRetry(input, job);
+      if (this.closed) return;
       const latest = this.sessions.get(job.session.sessionId);
       if (!latest || result === null) return;
-      const updated = applyClassification(latest, job.event, result, new Date(this.now()).toISOString());
+      const updated = applyClassification(latest, job.event, result, new Date(this.now()).toISOString(), job.seq);
       if (updated !== latest) this.commit(updated);
     } catch (error) {
       const message = error instanceof ClassifierError ? `${error.kind}: ${error.message}` : "classifier failure";
       this.options.logger.warn("classification failed", { sessionId: job.session.sessionId, error: message });
       this.options.onClassificationError(message);
+      if (this.closed) return;
       const latest = this.sessions.get(job.session.sessionId);
       if (!latest) return;
-      const updated = recordClassificationFailure(latest, job.event, message.slice(0, 200), new Date(this.now()).toISOString());
+      const updated = recordClassificationFailure(latest, job.event, message.slice(0, 200), new Date(this.now()).toISOString(), job.seq);
       if (updated !== latest) this.commit(updated);
     }
   }

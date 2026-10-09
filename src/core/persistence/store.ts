@@ -38,7 +38,8 @@ CREATE TABLE IF NOT EXISTS sessions (
   classification_error TEXT,
   ended_at TEXT,
   recent_failure_times TEXT NOT NULL DEFAULT '[]',
-  pending_permission_tool_use_id TEXT
+  pending_permission_tool_use_id TEXT,
+  event_seq INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS sessions_last_seen ON sessions(last_seen_at);
 CREATE TABLE IF NOT EXISTS session_events (
@@ -70,6 +71,7 @@ interface SessionRow {
   ended_at: string | null;
   recent_failure_times: string;
   pending_permission_tool_use_id: string | null;
+  event_seq: number | null;
 }
 
 interface EventRow {
@@ -108,6 +110,7 @@ function rowToSession(row: SessionRow): Session {
     endedAt: row.ended_at,
     recentFailureTimes: parseStringArray(row.recent_failure_times),
     pendingPermissionToolUseId: row.pending_permission_tool_use_id,
+    eventSeq: Number(row.event_seq ?? 0),
   };
 }
 
@@ -134,13 +137,18 @@ export function openStore(options: StoreOptions): Store {
     }
   }
   db.exec(SCHEMA);
+  try {
+    db.exec("ALTER TABLE sessions ADD COLUMN event_seq INTEGER NOT NULL DEFAULT 0");
+  } catch {
+    // column already exists
+  }
 
   const upsert = db.prepare(`
     INSERT INTO sessions (
       session_id, label, started_at, last_seen_at, last_event_type, status, priority, attention_reason,
       classification_confidence, classification_source, classified_at, classification_evidence,
-      classification_error, ended_at, recent_failure_times, pending_permission_tool_use_id
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      classification_error, ended_at, recent_failure_times, pending_permission_tool_use_id, event_seq
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(session_id) DO UPDATE SET
       label = excluded.label, started_at = excluded.started_at, last_seen_at = excluded.last_seen_at,
       last_event_type = excluded.last_event_type, status = excluded.status, priority = excluded.priority,
@@ -148,7 +156,7 @@ export function openStore(options: StoreOptions): Store {
       classification_source = excluded.classification_source, classified_at = excluded.classified_at,
       classification_evidence = excluded.classification_evidence, classification_error = excluded.classification_error,
       ended_at = excluded.ended_at, recent_failure_times = excluded.recent_failure_times,
-      pending_permission_tool_use_id = excluded.pending_permission_tool_use_id
+      pending_permission_tool_use_id = excluded.pending_permission_tool_use_id, event_seq = excluded.event_seq
   `);
   const selectOne = db.prepare("SELECT * FROM sessions WHERE session_id = ?");
   const selectAll = db.prepare("SELECT * FROM sessions ORDER BY last_seen_at DESC");
@@ -173,7 +181,7 @@ export function openStore(options: StoreOptions): Store {
       upsert.run(
         s.sessionId, s.label, s.startedAt, s.lastSeenAt, s.lastEventType, s.status, s.priority, s.attentionReason,
         s.classificationConfidence, s.classificationSource, s.classifiedAt, JSON.stringify(s.classificationEvidence),
-        s.classificationError, s.endedAt, JSON.stringify(s.recentFailureTimes), s.pendingPermissionToolUseId,
+        s.classificationError, s.endedAt, JSON.stringify(s.recentFailureTimes), s.pendingPermissionToolUseId, s.eventSeq,
       );
     },
     getSession(sessionId) {

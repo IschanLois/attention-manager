@@ -48,12 +48,22 @@ export function sanitizeText(input: string | null | undefined, maxLength: number
   return text.length > maxLength ? text.slice(0, maxLength) : text;
 }
 
+// Identifiers (tool names, ids, types) are bounded and control-stripped but never
+// redacted, because long MCP tool names would otherwise collapse to one string.
+export function sanitizeIdentifier(input: string | null | undefined, maxLength: number): string {
+  if (!input) return "";
+  const text = input.replace(ANSI_PATTERN, "").replace(INVISIBLE_PATTERN, "").replace(CONTROL_PATTERN, "").replace(/\s+/g, " ").trim();
+  return text.length > maxLength ? text.slice(0, maxLength) : text;
+}
+
+const DEDUPE_EXEMPT = new Set<EventType>(["subagent_stop", "compact"]);
+
 function firstLine(text: string | undefined): string {
   return sanitizeText((text ?? "").split(/\r?\n/)[0], 100);
 }
 
 function toolLabel(event: HookEvent): string {
-  return sanitizeText(event.tool_name, 64) || "tool";
+  return sanitizeIdentifier(event.tool_name, 64) || "tool";
 }
 
 function labelFromCwd(cwd: string | undefined): string | null {
@@ -82,7 +92,7 @@ function summarize(event: HookEvent, type: EventType): { summary: string; classi
     case "permission_request":
       return { summary: `Permission requested for ${toolLabel(event)}`, classifierText: null };
     case "notification": {
-      const kind = sanitizeText(event.notification_type, 32) || "unknown";
+      const kind = sanitizeIdentifier(event.notification_type, 32) || "unknown";
       const message = sanitizeText(event.message, 100);
       return {
         summary: message ? `Notification (${kind}): ${message}` : `Notification (${kind})`,
@@ -115,9 +125,12 @@ export function normalizeHookEvent(raw: unknown, receivedAt: string): NormalizeR
   const event = parsed.data;
   const type = EVENT_TYPE_BY_HOOK[event.hook_event_name];
   const { summary, classifierText } = summarize(event, type);
-  const toolName = event.tool_name ? sanitizeText(event.tool_name, 64) || null : null;
-  const toolUseId = event.tool_use_id ? sanitizeText(event.tool_use_id, 128) || null : null;
-  const notificationType = type === "notification" ? sanitizeText(event.notification_type, 32) || "unknown" : null;
+  const toolName = event.tool_name ? sanitizeIdentifier(event.tool_name, 64) || null : null;
+  const toolUseId = event.tool_use_id ? sanitizeIdentifier(event.tool_use_id, 128) || null : null;
+  const notificationType = type === "notification" ? sanitizeIdentifier(event.notification_type, 32) || "unknown" : null;
+  const promptId = event.prompt_id ? sanitizeIdentifier(event.prompt_id, 128) || null : null;
+  const source = type === "session_start" ? sanitizeIdentifier(event.source, 32) || null : null;
+  const textHash = classifierText ? createHash("sha256").update(classifierText).digest("hex").slice(0, 16) : null;
 
   return {
     ok: true,
@@ -127,7 +140,9 @@ export function normalizeHookEvent(raw: unknown, receivedAt: string): NormalizeR
       receivedAt,
       label: labelFromCwd(event.cwd),
       summary: summary.slice(0, SUMMARY_MAX_LENGTH),
-      dedupeKey: dedupeKey([event.session_id, type, toolUseId, notificationType, summary]),
+      dedupeKey: DEDUPE_EXEMPT.has(type) ? null : dedupeKey([event.session_id, type, toolUseId, notificationType, summary, promptId, textHash]),
+      promptId,
+      source,
       toolName,
       toolUseId,
       notificationType,
