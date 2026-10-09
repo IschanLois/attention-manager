@@ -34,7 +34,11 @@ export interface ListJson {
     status: SessionView["status"];
     priority: SessionView["priority"];
     reason: string | null;
+    reasonSource: SessionView["classificationSource"];
+    reasonConfidence: number | null;
     taskSeverity: SessionView["taskSeverity"];
+    taskSeveritySource: SessionView["taskSeveritySource"];
+    taskSeverityConfidence: number | null;
     taskSeverityReason: string | null;
     taskSummary: string | null;
     lastSeenAt: string;
@@ -56,7 +60,11 @@ export function toListJson(sessions: readonly SessionView[], nowMs: number, focu
       status: s.status,
       priority: s.priority,
       reason: s.attentionReason,
+      reasonSource: s.classificationSource,
+      reasonConfidence: s.classificationConfidence,
       taskSeverity: s.taskSeverity,
+      taskSeveritySource: s.taskSeveritySource,
+      taskSeverityConfidence: s.taskSeverityConfidence,
       taskSeverityReason: s.taskSeverityReason,
       taskSummary: s.taskSummary,
       lastSeenAt: s.lastSeenAt,

@@ -37,6 +37,7 @@ Replace the Next.js web dashboard with a terminal UI that installs from npm (`np
 - `8186abe` feat: `args.ts`, `sse.ts`, `lifecycle.ts`, `client.ts`, `context.ts`, `doctor.ts`, `help.ts`, `commands/{list,focus,hooks,receiver}.ts`; receiver health reports `app` and exposes `sseClients()`; `src/receiver/main.ts` replaced by `attention receiver`.
 - `bfc9168` feat: Ink TUI (`src/cli/tui/*`), setup flow (`src/cli/setup.ts`, `commands/setup.ts`), `commands/tui.ts`, bin entry `src/cli/main.ts`, built-binary smoke test.
 - `8e80890` fix: connecting state instead of an empty detail pane.
+- fix: AI confidence was lost in the port. Rows now show `AI 72%` before the reason when the attention verdict came from the model (placed before the reason so narrow terminals do not truncate it), the detail shows `[AI · 85%]` or `[Observed]` next to the task-severity line as well as the reason, and `list --json` adds `reasonSource`, `reasonConfidence`, `taskSeveritySource` and `taskSeverityConfidence`.
 - docs: README rewritten for the CLI, `docs/how-it-works.md` and `docs/technical-implementation.md` updated, `env.example` rewritten, `.claude/commands/{verify,demo,pack-smoke}.md`.
 
 ## Test plan

@@ -105,6 +105,10 @@ export function FilterBar({ state, theme }: { state: TuiState; theme: Theme }) {
   );
 }
 
+function aiTag(confidence: number | null): string {
+  return confidence === null ? "AI" : `AI ${Math.round(confidence * 100)}%`;
+}
+
 function riskBadge(session: SessionView, theme: Theme): string {
   if (!RISK_SHOWN.includes(session.taskSeverity)) return "";
   return theme.unicode ? `⚠ ${session.taskSeverity}` : `!${session.taskSeverity}`;
@@ -125,6 +129,7 @@ export function SessionRow({ session, selected, highlighted, now, theme, width }
       {pad(label, labelWidth)} <Text color={theme.statusColor(session.status)}>{pad(STATUS_LABELS[session.status], 15)}</Text>{" "}
       {pad(relativeTime(session.lastSeenAt, now), 7)}
       {risk ? <Text color={theme.priorityColor(session.taskSeverity)}>{risk} </Text> : null}
+      {session.attentionReason && session.classificationSource === "ai" ? <Text color={theme.color("magenta")}>{aiTag(session.classificationConfidence)} </Text> : null}
       <Text color={theme.color("gray")}>{reason}</Text>
     </Text>
   );
@@ -219,6 +224,7 @@ export function Detail({ session, events, now, theme, width, height }: { session
         <Text wrap="wrap" color={theme.priorityColor(session.taskSeverity)}>
           {RISK_LABELS[session.taskSeverity]}
           {session.taskSeverityReason ? `: ${session.taskSeverityReason}` : ""}
+          {session.taskSeverity !== "none" ? <Text color={theme.color("gray")}> [{sourceLabel(session.taskSeveritySource, session.taskSeverityConfidence)}]</Text> : null}
         </Text>
         {riskEvidence.map((line, i) => (
           <Text key={i} wrap="truncate-end" color={theme.color("gray")}>

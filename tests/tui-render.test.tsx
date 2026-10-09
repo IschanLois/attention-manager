@@ -119,3 +119,38 @@ describe("Screen while connecting", () => {
     expect(text).not.toMatch(/No session selected/);
   });
 });
+
+describe("AI confidence", () => {
+  function aiState(): TuiState {
+    const session = sessionView({
+      sessionId: "sess-ai-00000001",
+      label: "billing-api",
+      status: "completed",
+      priority: "medium",
+      attentionReason: "Asks whether to drop the backup table",
+      classificationSource: "ai",
+      classificationConfidence: 0.72,
+      taskSeverity: "critical",
+      taskSeveritySource: "ai",
+      taskSeverityReason: "Schema change on production",
+      taskSeverityConfidence: 0.85,
+    });
+    return reduce(initialState({ bell: true }), { type: "snapshot", snapshot: { sessions: [session], now: new Date(FIXTURE_NOW).toISOString(), staleAfterMs: 600_000 } });
+  }
+
+  it("shows the attention and task-severity confidence in the detail", () => {
+    const text = frame(aiState(), 140);
+    expect(text).toMatch(/Asks whether to drop the backup table[\s\S]*AI · 72%/);
+    expect(text).toMatch(/Critical risk: Schema change on production[\s\S]*AI · 85%/);
+  });
+
+  it("shows the attention confidence on the row so it is visible without opening the detail", () => {
+    const text = frame(aiState(), 80);
+    expect(text).toMatch(/AI 72%/);
+  });
+
+  it("marks rule-based verdicts as observed in the detail", () => {
+    const observed = reduce(withSessions(), { type: "move", delta: 0 });
+    expect(frame(observed, 140)).toMatch(/Critical risk: Dropping a production table[\s\S]*Observed/);
+  });
+});

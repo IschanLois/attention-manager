@@ -126,7 +126,7 @@ Beyond "who is blocked", each session carries a risk level for how consequential
 
 - **Context captured per session:** the latest prompt (first 300 characters), the last five tool actions as "Tool: command or path" snippets, and the agent's last message. Tool outputs, file contents and transcripts are never captured.
 - **Keyword rules first:** DDL (`DROP`/`ALTER`/`TRUNCATE`), `rm -rf`, force pushes, hard resets, `DELETE FROM`, production deploys, Terraform/kubectl mutations are **critical**; migrations, auth/billing/secrets, `sudo`, `curl | sh`, publishing are **high**; dependency changes, branch switches, broad refactors are **medium**; everything else is **low**.
-- **Model second:** on each new prompt and finished turn the local model rates the task. It can raise the keyword floor by at most one level and never lower it. The detail view says "Observed" for keyword matches and "AI · nn%" for model verdicts.
+- **Model second:** on each new prompt and finished turn the local model rates the task. It can raise the keyword floor by at most one level and never lower it. The detail view says "Observed" for keyword matches and "AI · nn%" for model verdicts, for both the attention reason and the risk; rows show "AI nn%" in front of a model-written reason.
 - **Escalation:** a permission request for a critical-risk command is shown as attention priority **critical**.
 - **Ranking:** active before ended, then attention priority, then task severity, then fresh before stale, then recency.
 
