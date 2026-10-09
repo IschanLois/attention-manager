@@ -249,6 +249,14 @@ export function Detail({ session, events, now, theme, width, height }: { session
   );
 }
 
+export function Connecting({ theme }: { theme: Theme }) {
+  return (
+    <Box paddingY={1}>
+      <Text color={theme.color("gray")}>Connecting to the receiver{theme.glyphs.ellipsis}</Text>
+    </Box>
+  );
+}
+
 export function EmptyState({ filtered, theme }: { filtered: boolean; theme: Theme }) {
   if (filtered) {
     return (

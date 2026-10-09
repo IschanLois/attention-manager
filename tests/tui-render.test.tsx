@@ -111,3 +111,11 @@ describe("theme", () => {
     expect(createTheme({ color: true, unicode: true }).color("red")).toBe("red");
   });
 });
+
+describe("Screen while connecting", () => {
+  it("says it is connecting instead of showing an empty detail pane", () => {
+    const text = frame(initialState({ bell: true }), 120);
+    expect(text).toMatch(/Connecting to the receiver/);
+    expect(text).not.toMatch(/No session selected/);
+  });
+});

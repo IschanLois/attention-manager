@@ -1,7 +1,7 @@
 import { Box } from "ink";
 import type { ReactNode } from "react";
 import { isFiltering } from "../model/filters.ts";
-import { Banners, Detail, EmptyState, FilterBar, Footer, Header, HelpOverlay, SessionList, StatusLine } from "./components.tsx";
+import { Banners, Connecting, Detail, EmptyState, FilterBar, Footer, Header, HelpOverlay, SessionList, StatusLine } from "./components.tsx";
 import { selectedSession, visibleSessions, type TuiState } from "./state.ts";
 import type { Theme } from "./theme.ts";
 
@@ -29,6 +29,7 @@ export function Screen({ state, now, width, height, theme, classifierEnabled }: 
 
   let body: ReactNode;
   if (state.help) body = <HelpOverlay theme={theme} />;
+  else if (state.sessions.length === 0 && state.connection === "connecting") body = <Connecting theme={theme} />;
   else if (state.sessions.length === 0 && state.connection !== "connecting") body = <EmptyState filtered={false} theme={theme} />;
   else if (sessions.length === 0 && state.connection !== "connecting") body = <EmptyState filtered={isFiltering(state.filters) || state.labelDraft !== null} theme={theme} />;
   else if (state.view === "detail") body = <Detail session={selected} events={events} now={now} theme={theme} width={width} height={bodyHeight} />;
