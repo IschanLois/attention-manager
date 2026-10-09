@@ -90,6 +90,27 @@ Still to verify by hand (no access from this session):
 | GNOME / KDE Wayland | fallback hint with the Wayland explanation; `doctor` warns |
 | A real Claude Code session after `attention setup` | events arrive through the installed hook; the Claude process (comm `claude`) is picked for tty and pid |
 
+## Change: stacked layout and terminal highlight
+
+**Purpose.** The side-by-side split (list 55% | detail 45%) truncated rows early. The list now spans the full width with the detail below it, and the freed width carries more columns. On tabbed terminals (VS Code, GNOME Terminal) focus can raise the window but not pick the tab, so Enter now also marks the session's terminal.
+
+**Changes.**
+- `Screen.tsx`: the list sits on top (up to 45% of the body, sized to the sessions), a divider, then the detail at full width. Below 14 body rows it is list only and `d` drills in. `WIDE_MIN_COLUMNS` is gone; the footer's "narrow" hints follow the stacked/drill-down choice.
+- `components.tsx`: `SessionList` renders a column header and keeps its overflow line inside its height. `SessionRow` takes a shared `RowLayout`: label width sized to the longest visible label, and a **Terminal** column at 100+ columns (`terminalShort`: `tmux %2`, `kitty 4`, `vscode pts/3`, …). Rows no longer show the task summary (previously the fallback when there was no attention reason); the reason column shows the attention reason or the last event, and the task appears only in the detail below.
+- `focus/highlight.ts` (new) `ringTty`: opens the tty `O_WRONLY | O_NOCTTY | O_NONBLOCK`, checks it is a character device owned by the current user, writes BEL. Injected through `FocusContext.ringTty` / `CliContext.ringTty`.
+- `focus/select.ts` `focusSession`: after the adapters, rings the session's tty whatever the outcome; a successful ring sets `highlighted` on the result. A failed ring never changes the result kind.
+- `commands/focus.ts` `describeFocusResult`: "…, rang the bell on pts/3", and for unsupported/failed it leads with "Rang the bell on pts/3 to mark its tab." Both the TUI status line and `attention focus` use it.
+
+**Decisions.**
+- A "project" column was dropped: the label already is the cwd basename.
+- A separate task column (140+ columns) was tried and removed on review: with the detail stacked below, the task was shown twice.
+- The bell is the highlight because every terminal understands it without per-terminal integration; VS Code needs `terminal.integrated.enableBell` (or the terminal bell accessibility signal) to show it.
+- No extra row flash on Enter: the status line already acknowledges the press ("Focusing …" then the result).
+
+**Tests.** `tui-render`: list above the detail, list-only on short terminals with the drill-down, column header and terminal column at 110 (not at 70), no task summary in any row at 110 or 160 (also when there is no attention reason), and no TASK header. `cli-focus`: the tty is rung after focus, on unsupported and on failed results, not without a tty, and a failed ring keeps `focused`; `describeFocusResult` names the tty.
+
+**Manual.** Run `attention` with Claude sessions in other VS Code terminal tabs: full-width list with the header and Terminal column, the detail below it following the selection, list only after shrinking the height. Enter raises the window (wmctrl) and the session's tab shows the bell marker; the status line names the tty. `attention focus <label>` prints the same message.
+
 ## Known limitations
 
 - **Wayland:** there is no generic window-focus API. Only tmux, screen, kitty, WezTerm, sway and Hyprland routes work there; GNOME and KDE get the manual hint.

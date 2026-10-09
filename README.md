@@ -5,9 +5,14 @@ A terminal UI that watches all your Claude Code sessions at once, tells you whic
 ```
  attention  ● live · model qwen3:1.7b · 3 sessions · 1 need you · 1 high risk · bell on
  sort attention · ended hidden
- ▶ ● CRITICAL billing-api   Needs attention  just now ⚠ critical Waiting for permission to run Bash
-   ◐ None     docs-site     Working          2m        Bash: pnpm build
-   ✔ Low      infra         Turn complete    5m        Turn finished
+     PRIORITY SESSION      STATUS          SEEN   TERMINAL       REASON
+ ▶ ● CRITICAL billing-api  Needs attention 0s     tmux %2        ⚠ critical Waiting for permission to run Bash
+   ◐ None     docs-site    Working         2m     vscode pts/3   Tool finished
+   ✔ Low      infra        Turn complete   5m     kitty 4        Turn finished
+ ──────────────────────────────────────────────────────────────────────────────────────────────────
+ billing-api (a1b2c3d4) Needs attention CRITICAL
+ seen 0s ago · terminal: tmux %2, /dev/pts/4, pid 4242
+ …
  j/k move · Enter focus · d expand · / filter · s sort · e ended · 1-5 priority · ? help · q quit
 ```
 
@@ -59,8 +64,8 @@ Global flag: `--no-color` (also `NO_COLOR=1`; colour is off automatically when o
 | Key | Action |
 | --- | --- |
 | `j` / `k`, arrows, `g` / `G`, PgUp / PgDn | Move the selection |
-| `Enter` or `f` | Focus the terminal running the selected session |
-| `d` or `Tab` | Detail view (beside the list on terminals 100+ columns wide, full screen otherwise) |
+| `Enter` or `f` | Focus the terminal running the selected session and ring its bell so the right tab is marked |
+| `d` or `Tab` | Full-screen detail view (the detail also sits below the list when the terminal is tall enough) |
 | `/` | Filter by label or id (Enter keeps it, Esc restores the previous one) |
 | `s` | Cycle sort: attention, recent, label |
 | `e` | Show or hide ended sessions |
@@ -193,7 +198,7 @@ Directories are created with mode 0700 and files with 0600. `ATTENTION_CONFIG_DI
 
 - **No sessions appear.** Run `attention doctor`. Hooks must be installed in the settings file Claude Code reads and must not be stale, and the session must have been started after the hooks were installed.
 - **`hooks status` says stale after an upgrade or a Node version change.** Run `attention hooks install` again; the hook command records the absolute Node and package paths.
-- **Enter does not focus.** `attention doctor` lists the focus route for your current shell and how many sessions are focusable. Sessions started before the hooks were (re)installed carry no terminal information until their next event. On GNOME/KDE Wayland, run Claude inside tmux, kitty or WezTerm.
+- **Enter does not focus.** `attention doctor` lists the focus route for your current shell and how many sessions are focusable. Sessions started before the hooks were (re)installed carry no terminal information until their next event. On GNOME/KDE Wayland, run Claude inside tmux, kitty or WezTerm. In VS Code, GNOME Terminal and other tabbed terminals the window can be raised but not the tab, so Enter also rings the bell on the session's tty; in VS Code turn on `terminal.integrated.enableBell` (or `accessibility.signals.terminalBell`) to see the bell marker on the tab.
 - **Permission prompts don't show up.** `Notification` hooks only fire in interactive sessions; `PermissionRequest` fires in both.
 - **Model unavailable banner.** Check `curl http://127.0.0.1:11434/api/tags` and install the model with `ollama pull <model>`. Everything keeps working rule-based.
 - **Port in use.** Another program owns 4318; set `RECEIVER_PORT` or `receiver.port` in the config file.
