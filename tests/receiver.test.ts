@@ -340,6 +340,39 @@ describe("receiver", () => {
     }
   });
 
+  it("retries once after a classification timeout and applies the second answer", async () => {
+    const { ClassifierError } = await import("@/core/classifier/types");
+    let calls = 0;
+    const flaky = await createReceiver({
+      host: "127.0.0.1", port: 0, databasePath: ":memory:", ingestToken: TOKEN, maxBodyBytes: 4096,
+      eventHistoryLimit: 20, staleAfterMs: 600_000, dedupeWindowMs: 0, retryDelayMs: 10,
+      rateLimit: { perSessionPerMinute: 60, globalPerMinute: 200 }, logLevel: "error",
+      classifier: {
+        async classify() {
+          calls += 1;
+          if (calls === 1) throw new ClassifierError("slow", "timeout");
+          return { needs_attention: true, priority: "high", reason: "Second try.", evidence: [], confidence: 0.6 };
+        },
+        async health() { return { reachable: true, modelInstalled: true, model: "m", url: "u", error: null }; },
+      },
+    });
+    try {
+      const url = `http://127.0.0.1:${flaky.port}`;
+      const send = (body: unknown) => fetch(`${url}/api/events`, {
+        method: "POST", headers: { "content-type": "application/json", "x-attention-token": TOKEN }, body: JSON.stringify(body),
+      });
+      await send(fx.sessionStart(fx.SESSION_B));
+      await send(fx.unknownNotification());
+      await new Promise((r) => setTimeout(r, 100));
+      const s = (await (await fetch(`${url}/api/sessions`)).json()).sessions[0];
+      expect(calls).toBe(2);
+      expect(s.classificationSource).toBe("ai");
+      expect(s.attentionReason).toBe("Second try.");
+    } finally {
+      await flaky.close();
+    }
+  });
+
   it("applies a successful classification and shows it as AI-sourced", async () => {
     const smart = await createReceiver({
       host: "127.0.0.1", port: 0, databasePath: ":memory:", ingestToken: TOKEN, maxBodyBytes: 4096,

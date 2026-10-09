@@ -17,8 +17,9 @@ export interface ModelHealth {
 }
 
 export interface ClassifierPort {
-  classify(input: ClassifierInput, signal?: AbortSignal): Promise<Classification | null>;
+  classify(input: ClassifierInput): Promise<Classification | null>;
   health(): Promise<ModelHealth>;
+  warmUp?(): Promise<void>;
 }
 
 export type ClassifierErrorKind = "unreachable" | "model_missing" | "timeout" | "invalid_output" | "http_error" | "rate_limited";

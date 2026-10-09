@@ -6,6 +6,7 @@ export interface OllamaOptions {
   url: string;
   model: string;
   timeoutMs: number;
+  warmUpTimeoutMs?: number;
   keepAlive?: string;
   fetchImpl?: typeof fetch;
 }
@@ -58,8 +59,7 @@ export function createOllamaClassifier(options: OllamaOptions): ClassifierPort {
     return supportsThinking;
   }
 
-  return {
-    async classify(input: ClassifierInput) {
+  async function chat(input: ClassifierInput, timeoutMs: number) {
       const thinking = await detectThinking();
       const body = {
         model: options.model,
@@ -74,7 +74,7 @@ export function createOllamaClassifier(options: OllamaOptions): ClassifierPort {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify(body),
-      }, options.timeoutMs);
+      }, timeoutMs);
 
       let payload: ChatResponse;
       try {
@@ -91,6 +91,15 @@ export function createOllamaClassifier(options: OllamaOptions): ClassifierPort {
       const parsed = parseModelOutput(content);
       if (!parsed) throw new ClassifierError("model output failed validation", "invalid_output");
       return parsed;
+  }
+
+  return {
+    classify(input: ClassifierInput) {
+      return chat(input, options.timeoutMs);
+    },
+
+    async warmUp() {
+      await chat({ eventType: "notification", notificationType: null, toolName: null, text: "warm up", recentFailures: 0 }, options.warmUpTimeoutMs ?? 60_000);
     },
 
     async health(): Promise<ModelHealth> {

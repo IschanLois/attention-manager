@@ -1,5 +1,5 @@
 import { normalizeHookEvent } from "../core/events/normalize.ts";
-import type { ClassifierPort } from "../core/classifier/types.ts";
+import type { ClassifierInput, ClassifierPort } from "../core/classifier/types.ts";
 import type { Logger } from "../core/logger.ts";
 import type { Store } from "../core/persistence/store.ts";
 import type { NormalizedEvent, Session } from "../core/schemas.ts";
@@ -22,6 +22,7 @@ export interface PipelineOptions {
   logger: Logger;
   dedupeWindowMs: number;
   maxSessions?: number;
+  retryDelayMs?: number;
   onSessionChanged: (session: Session) => void;
   onSessionRemoved?: (sessionId: string) => void;
   onClassificationError: (message: string) => void;
@@ -144,6 +145,20 @@ export class IngestPipeline {
     }
   }
 
+  private async classifyWithRetry(input: ClassifierInput, job: PendingJob) {
+    try {
+      return await this.options.classifier.classify(input);
+    } catch (error) {
+      const timedOut = error instanceof ClassifierError && error.kind === "timeout";
+      const stillCurrent = () => this.sessions.get(job.session.sessionId)?.lastSeenAt === job.event.receivedAt;
+      if (!timedOut || this.closed || !stillCurrent()) throw error;
+      this.options.logger.debug("classification timed out; retrying once", { sessionId: job.session.sessionId });
+      await new Promise((resolve) => setTimeout(resolve, this.options.retryDelayMs ?? 2000));
+      if (this.closed || !stillCurrent()) throw error;
+      return await this.options.classifier.classify(input);
+    }
+  }
+
   private async runJob(job: PendingJob): Promise<void> {
     const current = this.sessions.get(job.session.sessionId);
     if (!current || current.lastSeenAt !== job.event.receivedAt || current.status === "ended") return;
@@ -155,7 +170,7 @@ export class IngestPipeline {
       recentFailures: current.recentFailureTimes.length,
     };
     try {
-      const result = await this.options.classifier.classify(input);
+      const result = await this.classifyWithRetry(input, job);
       const latest = this.sessions.get(job.session.sessionId);
       if (!latest || result === null) return;
       const updated = applyClassification(latest, job.event, result, new Date(this.now()).toISOString());

@@ -47,8 +47,7 @@ else if (!modelHealth.modelInstalled) logger.warn("model not installed; running 
 else {
   logger.info("local model available; warming up", { model: config.ollamaModel });
   const warmupStarted = Date.now();
-  classifier
-    .classify({ eventType: "notification", notificationType: null, toolName: null, text: "warm up", recentFailures: 0 })
+  (classifier.warmUp?.() ?? Promise.resolve())
     .then(() => logger.info("model warm", { ms: Date.now() - warmupStarted }))
     .catch((error: unknown) => logger.warn("model warm-up failed", { error: error instanceof Error ? error.message : String(error) }));
 }

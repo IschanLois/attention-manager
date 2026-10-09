@@ -68,7 +68,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env, cwd: string = p
     },
     ollamaUrl: (env.OLLAMA_URL?.trim() || "http://127.0.0.1:11434").replace(/\/+$/, ""),
     ollamaModel: env.OLLAMA_MODEL?.trim() || "qwen3:1.7b",
-    classifyTimeoutMs: intFromEnv("CLASSIFY_TIMEOUT_MS", 8000, 500, 600_000),
+    classifyTimeoutMs: intFromEnv("CLASSIFY_TIMEOUT_MS", 15_000, 500, 600_000),
     retentionMs: intFromEnv("RETENTION_DAYS", 7, 1, 365) * 24 * 60 * 60_000,
     maxSessions: intFromEnv("MAX_SESSIONS", 1000, 10, 100_000),
     allowNoToken: env.ATTENTION_ALLOW_NO_TOKEN === "1",

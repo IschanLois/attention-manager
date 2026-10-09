@@ -128,6 +128,21 @@ describe("createOllamaClassifier", () => {
     await expect(slow.classify(input)).rejects.toMatchObject({ kind: "timeout" });
   });
 
+  it("warms up with a longer timeout than regular classification", async () => {
+    let elapsedAllowed = 0;
+    const classifier = createOllamaClassifier({
+      url: "http://127.0.0.1:1", model: "m", timeoutMs: 50, warmUpTimeoutMs: 400,
+      fetchImpl: ((_url: string, init?: RequestInit) => new Promise<Response>((resolve, reject) => {
+        const started = Date.now();
+        const timer = setTimeout(() => resolve(chatResponse(JSON.stringify({ needs_attention: false, priority: "none", reason: "ok", evidence: [], confidence: 1 }))), 150);
+        init?.signal?.addEventListener("abort", () => { clearTimeout(timer); elapsedAllowed = Date.now() - started; reject(new DOMException("aborted", "AbortError")); });
+      })) as typeof fetch,
+    });
+    await expect(classifier.classify(input)).rejects.toMatchObject({ kind: "timeout" });
+    expect(elapsedAllowed).toBeLessThan(150);
+    await expect(classifier.warmUp!()).resolves.toBeUndefined();
+  });
+
   it("reports health with model presence", async () => {
     const classifier = withFetch(async (url) => {
       if (url.endsWith("/api/tags")) return new Response(JSON.stringify({ models: [{ name: "test-model:latest" }] }), { status: 200 });

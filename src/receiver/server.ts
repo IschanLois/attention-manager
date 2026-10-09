@@ -23,6 +23,7 @@ export interface ReceiverOptions {
   maxSessions?: number;
   retentionMs?: number;
   maxSseClients?: number;
+  retryDelayMs?: number;
   classifier: ClassifierPort;
   logLevel: LogLevel;
   logger?: Logger;
@@ -139,6 +140,7 @@ export async function createReceiver(options: ReceiverOptions): Promise<Receiver
     logger,
     dedupeWindowMs: options.dedupeWindowMs,
     maxSessions: options.maxSessions,
+    retryDelayMs: options.retryDelayMs,
     onSessionChanged: (session: Session) => {
       hub.broadcast("session", toView(session, Date.now(), options.staleAfterMs));
     },

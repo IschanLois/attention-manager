@@ -104,7 +104,7 @@ All settings are environment variables (see `env.example`):
 | `DATABASE_PATH` | `./data/attention.db` | SQLite file; `:memory:` for ephemeral. |
 | `INGEST_TOKEN_PATH` | `./data/ingest-token` | Shared secret between hook script and receiver. `ATTENTION_INGEST_TOKEN` overrides. |
 | `OLLAMA_URL` / `OLLAMA_MODEL` | `http://127.0.0.1:11434` / `qwen3:1.7b` | Local model runtime and model name. |
-| `CLASSIFY_TIMEOUT_MS` | `8000` | Inference timeout; on timeout the rule-based state stays. |
+| `CLASSIFY_TIMEOUT_MS` | `15000` | Inference timeout; one retry after a timeout, then the rule-based state stays. |
 | `STALE_AFTER_MS` | `600000` | Sessions without events for this long are flagged stale. |
 | `EVENT_HISTORY_LIMIT` | `50` | Events kept per session. |
 | `DEDUPE_WINDOW_MS` | `5000` | Identical events inside this window are dropped. |
