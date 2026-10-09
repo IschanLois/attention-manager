@@ -25,7 +25,7 @@ export interface Theme {
 const UNICODE: Glyphs = {
   selected: "▶",
   unselected: " ",
-  status: { needs_attention: "●", error: "✖", working: "◐", starting: "○", completed: "✔", idle: "◌", ended: "■" },
+  status: { needs_attention: "●", error: "✖", working: "◐", starting: "○", completed: "↩", idle: "◌", ended: "■" },
   sep: "·",
   live: "●",
   offline: "○",
@@ -37,7 +37,7 @@ const UNICODE: Glyphs = {
 const ASCII: Glyphs = {
   selected: ">",
   unselected: " ",
-  status: { needs_attention: "[!]", error: "[x]", working: "[~]", starting: "[ ]", completed: "[v]", idle: "[.]", ended: "[-]" },
+  status: { needs_attention: "[!]", error: "[x]", working: "[~]", starting: "[ ]", completed: "[<]", idle: "[.]", ended: "[-]" },
   sep: "|",
   live: "*",
   offline: "o",
