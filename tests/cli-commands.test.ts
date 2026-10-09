@@ -45,6 +45,7 @@ function context(overrides: Partial<CliContext> = {}): CliContext & { output: st
     color: false,
     isTTY: false,
     exec,
+    ringTty: async () => ({ ok: true }),
     out: (line) => output.push(line),
     err: (line) => errors.push(line),
     ...overrides,

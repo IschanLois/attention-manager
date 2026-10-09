@@ -2,6 +2,7 @@ import { homedir } from "node:os";
 import type { CliConfig } from "./config.ts";
 import { loadCliConfig, DEFAULT_CONFIG } from "./config.ts";
 import { execFocusCommand } from "./focus/exec.ts";
+import { ringTty } from "./focus/highlight.ts";
 import type { Exec, FocusContext } from "./focus/types.ts";
 import { defaultHookSpec, defaultSettingsPath, type HookCommandSpec } from "./hooks.ts";
 import { APP_NAME } from "./meta.ts";
@@ -23,6 +24,7 @@ export interface CliContext {
   color: boolean;
   isTTY: boolean;
   exec: Exec;
+  ringTty: FocusContext["ringTty"];
   out(line: string): void;
   err(line: string): void;
 }
@@ -32,8 +34,8 @@ export function receiverPort(config: CliConfig, env: Env): number {
   return Number.isInteger(fromEnv) && fromEnv > 0 && fromEnv < 65536 ? fromEnv : config.receiver.port;
 }
 
-export function focusContext(ctx: Pick<CliContext, "platform" | "env" | "exec">): FocusContext {
-  return { platform: ctx.platform, env: ctx.env, exec: ctx.exec };
+export function focusContext(ctx: Pick<CliContext, "platform" | "env" | "exec" | "ringTty">): FocusContext {
+  return { platform: ctx.platform, env: ctx.env, exec: ctx.exec, ringTty: ctx.ringTty };
 }
 
 // Colour follows NO_COLOR (https://no-color.org), TERM=dumb, non-TTY output and --no-color.
@@ -62,6 +64,7 @@ export function createContext(platform: SupportedPlatform, colorFlag: boolean): 
     color: colorEnabled(colorFlag, env, isTTY),
     isTTY,
     exec: execFocusCommand,
+    ringTty,
     out: (line) => process.stdout.write(line + "\n"),
     err: (line) => process.stderr.write(line + "\n"),
   };

@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 import type { TerminalInfo } from "@/core/terminal";
+import { describeFocusResult } from "@/cli/commands/focus";
 import { focusSession, planFocus } from "@/cli/focus/select";
-import type { Exec, ExecResult, FocusContext } from "@/cli/focus/types";
+import type { Exec, ExecResult, FocusContext, StepOutcome } from "@/cli/focus/types";
 
 type Call = { file: string; args: string[] };
 
@@ -16,8 +17,18 @@ function fakeExec(respond: (call: Call) => ExecResult = () => ({ ok: true, stdou
   return exec;
 }
 
-function ctx(platform: string, env: Record<string, string>, exec: Exec = fakeExec()): FocusContext {
-  return { platform, env, exec };
+function fakeRing(outcome: StepOutcome = { ok: true }): FocusContext["ringTty"] & { rung: string[] } {
+  const rung: string[] = [];
+  const ring = (async (tty: string) => {
+    rung.push(tty);
+    return outcome;
+  }) as FocusContext["ringTty"] & { rung: string[] };
+  ring.rung = rung;
+  return ring;
+}
+
+function ctx(platform: string, env: Record<string, string>, exec: Exec = fakeExec(), ringTty: FocusContext["ringTty"] = fakeRing()): FocusContext {
+  return { platform, env, exec, ringTty };
 }
 
 const X11 = { DISPLAY: ":0" };
@@ -198,5 +209,37 @@ describe("focusSession results", () => {
     const result = await focusSession(null, ctx("linux", X11));
     expect(result.kind).toBe("unsupported");
     if (result.kind === "unsupported") expect(result.hint).toMatch(/no terminal information/i);
+  });
+});
+
+describe("terminal highlight", () => {
+  it("rings the session's tty after a successful focus", async () => {
+    const ring = fakeRing();
+    const result = await focusSession(TMUX_PANE, ctx("linux", {}, fakeExec(), ring));
+    expect(ring.rung).toEqual(["/dev/pts/4"]);
+    expect(result).toMatchObject({ kind: "focused", highlighted: "/dev/pts/4" });
+  });
+
+  it("rings the tty when nothing can focus the session or every focus step fails", async () => {
+    const unsupported = await focusSession({ tty: "/dev/pts/4" }, ctx("linux", GNOME_WAYLAND));
+    expect(unsupported).toMatchObject({ kind: "unsupported", highlighted: "/dev/pts/4" });
+    const failing = fakeExec(() => ({ ok: false, kind: "exit", message: "exit 1" }));
+    const failed = await focusSession(TMUX_PANE, ctx("linux", {}, failing));
+    expect(failed).toMatchObject({ kind: "failed", highlighted: "/dev/pts/4" });
+  });
+
+  it("does not ring without a tty and keeps a successful focus when the ring fails", async () => {
+    const ring = fakeRing();
+    await focusSession({ windowId: "41943047" }, ctx("linux", X11, fakeExec(), ring));
+    expect(ring.rung).toEqual([]);
+    const result = await focusSession(TMUX_PANE, ctx("linux", {}, fakeExec(), fakeRing({ ok: false, reason: "EACCES" })));
+    expect(result.kind).toBe("focused");
+    expect(result.highlighted).toBeUndefined();
+  });
+
+  it("tells the user which terminal was marked", () => {
+    expect(describeFocusResult({ kind: "focused", via: ["x11"], notes: [], highlighted: "/dev/pts/3" }, "api")).toMatch(/Focused api via x11.*bell.*pts\/3/);
+    expect(describeFocusResult({ kind: "unsupported", hint: "Switch to it manually.", highlighted: "/dev/pts/3" }, "api")).toMatch(/^Rang the bell on pts\/3.*Switch to it manually/);
+    expect(describeFocusResult({ kind: "unsupported", hint: "Switch to it manually." }, "api")).not.toMatch(/bell/);
   });
 });
