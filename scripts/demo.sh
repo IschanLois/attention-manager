@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Opens the attention TUI and several real Claude Code sessions, each steered into a
+# Opens several real Claude Code sessions, each steered into a
 # different state. Most scenarios are worded so no keyword rule matches: the ranking and the
 # reasons shown in the TUI then come from the local model (Ollama).
 set -euo pipefail
@@ -11,10 +11,11 @@ SCENARIOS=(soft-question hidden-risk benign-failure needs-approval risky-cleanup
 
 usage() {
   cat <<EOF
-Usage: scripts/demo.sh [--tmux] [--no-tui] [--only a,b] [--clean]
+Usage: scripts/demo.sh [--tmux] [--tui] [--only a,b] [--clean]
 
-Opens the attention TUI and one Claude Code session per scenario, each in its own
-terminal window (or tmux window with --tmux). Every session runs in its own folder under
+Opens one Claude Code session per scenario, each in its own terminal window (or tmux
+window with --tmux). It does not open the attention TUI: run "attention" in a terminal of
+your own first (it starts the receiver the sessions report to), or pass --tui. Every session runs in its own folder under
 $DEMO_DIR, so its label in the TUI is the scenario name.
 
 Scenarios (the first three are decided by the local AI; no keyword rule matches them):
@@ -28,7 +29,7 @@ Scenarios (the first three are decided by the local AI; no keyword rule matches 
 
 Options:
   --tmux      use one tmux session "attention-demo" instead of desktop windows
-  --no-tui    do not open the TUI (it is already running)
+  --tui       also open the attention TUI in its own window
   --only      comma-separated subset of scenarios
   --clean     remove $DEMO_DIR and exit
 
@@ -124,12 +125,13 @@ open_tmux() {
 }
 
 main() {
-  local use_tmux=0 with_tui=1 only=""
+  local use_tmux=0 with_tui=0 only=""
   while (( $# )); do
     case "$1" in
       --session) run_session "$2"; exit 0 ;;
       --tmux) use_tmux=1 ;;
-      --no-tui) with_tui=0 ;;
+      --tui) with_tui=1 ;;
+      --no-tui) ;;
       --only) only="$2"; shift ;;
       --clean) rm -rf "${DEMO_DIR:?}"; echo "Removed $DEMO_DIR"; exit 0 ;;
       -h|--help) usage; exit 0 ;;
@@ -146,6 +148,10 @@ main() {
 
   "$ATTENTION" doctor 2>/dev/null | grep -i "local model" | grep -qi "available" \
     || echo "demo: warning: the local model is not available, so the AI scenarios will show the rule-based fallback. Run: attention doctor" >&2
+
+  if (( ! with_tui )) && "$ATTENTION" doctor 2>/dev/null | grep -i "receiver" | grep -qi "not running"; then
+    echo "demo: warning: the receiver is not running, so these sessions will not be seen. Open the TUI first with: attention" >&2
+  fi
 
   local selected=("${SCENARIOS[@]}")
   if [[ -n "$only" ]]; then
