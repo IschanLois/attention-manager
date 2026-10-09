@@ -25,6 +25,7 @@ export const terminalInfoSchema = z.object({
   windowId: optionalField(pattern(/^(?:0x[0-9A-Fa-f]{1,16}|\d{1,20})$/)),
   tty: optionalField(pattern(/^\/dev\/(?:pts\/\d{1,6}|tty[A-Za-z0-9]{1,16})$/)),
   pid: optionalField(pid),
+  processName: optionalField(pattern(/^[A-Za-z0-9_.+-]{1,32}$/)),
   ancestors: optionalField(z.array(pid).max(12)),
   cwd: optionalField(z.string().regex(/^\/[^\u0000-\u001f\u007f]{0,1023}$/)),
   display: optionalField(z.enum(TERMINAL_DISPLAYS)),

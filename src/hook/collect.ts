@@ -24,6 +24,7 @@ export interface RawTerminal {
   windowId?: string;
   tty?: string;
   pid?: number;
+  processName?: string;
   ancestors?: number[];
   cwd?: string;
   display?: string;
@@ -100,7 +101,7 @@ export function psProcReader(): ProcReader {
   };
 }
 
-export function findClaudeProcess(startPid: number, readProc: ProcReader): { pid: number; tty: string | null; ancestors: number[] } | null {
+export function findClaudeProcess(startPid: number, readProc: ProcReader): { pid: number; name: string; tty: string | null; ancestors: number[] } | null {
   const chain: ProcInfo[] = [];
   let pid = startPid;
   for (let depth = 0; depth < MAX_DEPTH && pid > 1; depth++) {
@@ -113,7 +114,7 @@ export function findClaudeProcess(startPid: number, readProc: ProcReader): { pid
   const chosen = index >= 0 ? index : chain.findIndex((p) => p.tty !== null);
   if (chosen < 0) return null;
   const claude = chain[chosen]!;
-  return { pid: claude.pid, tty: claude.tty, ancestors: chain.slice(chosen + 1).map((p) => p.pid).filter((p) => p > 1) };
+  return { pid: claude.pid, name: claude.comm, tty: claude.tty, ancestors: chain.slice(chosen + 1).map((p) => p.pid).filter((p) => p > 1) };
 }
 
 function bounded(value: string | undefined): string | undefined {
@@ -167,6 +168,7 @@ export function collectTerminal({ platform, env, parentPid, readProc, cwd }: Col
   if (claude) {
     if (claude.tty) info.tty = claude.tty;
     info.pid = claude.pid;
+    info.processName = claude.name.slice(0, 32);
     if (claude.ancestors.length) info.ancestors = claude.ancestors.slice(0, 12);
   }
   if (cwd) info.cwd = cwd.slice(0, 1024);
