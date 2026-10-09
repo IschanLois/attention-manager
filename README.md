@@ -1,92 +1,113 @@
 # attention: know which coding agent needs you, and why
 
-When several coding agents run at once, the one that matters is rarely the one that pinged you last. attention is a terminal dashboard that watches all of your agent sessions and points your attention at the ones with the most at stake. It ranks them by **semantic urgency**: what the agent is about to do, not just whether it is waiting. It tells you **why** each one is ranked where it is, and jumps to the terminal running it when you press Enter.
+![demo](./demo.png)
 
-- **Attention goes to the riskiest session.** Every session carries a risk level for its current task. Keyword rules catch the obvious cases (`rm -rf`, `DROP TABLE`, force pushes). A small local model reads the rest, for example a request to empty "the only copy of our customer list", which contains no risky keyword. Risk ranks first, so the dangerous session sits on top even while it is still working or before it asks for permission.
-- **Setup benchmarks the models you already have.** The best local model depends on the device. `attention setup` can run its classifier test cases against every model installed in Ollama and keep the most accurate one that still answers within 3 s on your hardware. Rule-based mode works without any model.
-- **Every ranking explains itself.** The detail view gives the reason for the risk, the evidence the model quoted from the session, and its confidence (for example "Medium risk: emptying a critical customer list file… [AI confidence 80%]"). Keyword verdicts are labelled "Observed", so you can always tell a rule from a model judgement.
-- **Built for coding agents in general.** Claude Code is the first agent it supports, through its hook events. The ranking, risk model and UI work on a normalized event stream, and support for other coding agents, including fully local ones, is the direction. Today only Claude Code is wired up.
-- **Private by design.** Session state comes deterministically from the agent's hook events. The local model, via Ollama, only interprets the ambiguous ones, and nothing leaves your machine.
+When several coding agents run at once, the one that matters is rarely the one that pinged you last. attention is a terminal dashboard that watches all of your agent sessions and ranks them by **semantic urgency**: what the agent is about to do, not just whether it is waiting. It tells you **why** each one is ranked where it is, and jumps to its terminal when you press Enter.
 
+- **Attention goes to the riskiest session.** Keyword rules catch the obvious cases (`rm -rf`, `DROP TABLE`, force pushes). A small local model reads the rest, for example a request to empty "the only copy of our customer list". Risk ranks first, so the dangerous session sits on top even while it is still working.
+- **Every ranking explains itself.** The detail view gives the reason, the evidence the model quoted and its confidence. Keyword verdicts are labelled "Observed", so you can tell a rule from a model judgement.
+- **Setup benchmarks the models you already have.** `attention setup` can test every model installed in Ollama and keep the most accurate one that answers within 3 s on your hardware. Rule-based mode works without any model.
+- **Private by design.** State comes deterministically from the agent's hook events. The local model only interprets ambiguous ones, and nothing leaves your machine.
+- **Built for coding agents in general.** Claude Code is the only agent wired up today (through its hook events). The ranking, risk model and UI work on a normalized event stream, so other agents are the direction.
+
+More: [how it works](docs/how-it-works.md), [technical implementation](docs/technical-implementation.md) and `docs/worklogs/` (decisions and verification history).
+
+## Setup
+
+Requires macOS or Linux (not Windows) and Claude Code 2.1.x. Ollama is optional: skip steps 1 and 2 and attention runs in rule-based mode.
+
+### 1. Install Ollama
+
+```bash
+curl -fsSL https://ollama.com/install.sh | sh   # Linux
+brew install ollama                             # macOS (or the app from https://ollama.com)
 ```
- attention  ● live · model qwen3:1.7b · 3 sessions · 1 need you · 1 high risk · bell on
- sort attention · ended hidden
-     PRIORITY SESSION      STATUS          SEEN   TERMINAL       REASON
- ▶ ● CRITICAL billing-api  Needs input     0s     tmux %2        Waiting for permission to run Bash
-   ◐ None     docs-site    Working         2m     vscode pts/3   Tool finished
-   ↩ Low      infra        Turn complete   5m     kitty 4        Turn finished
- ──────────────────────────────────────────────────────────────────────────────────────────────────
- billing-api (a1b2c3d4) Needs input CRITICAL
- seen 0s ago · terminal: tmux %2, /dev/pts/4, pid 4242
- …
- j/k move · Enter focus · d expand · / filter · s sort · e ended · 1-5 priority · ? help · q quit
-```
 
-Documentation: [how it works](docs/how-it-works.md) (concepts), [technical implementation](docs/technical-implementation.md) (architecture, contracts, security model, tests) and `docs/worklogs/` (decisions and verification history).
+Make sure the server is running (`ollama serve`, or the desktop app on macOS).
 
-## Requirements
+### 2. Pull a model
 
-- macOS (Intel or Apple Silicon) or Linux (X11 or Wayland). Windows is not supported.
-- Node.js 24 or newer (uses the built-in `node:sqlite`; no native modules).
-- Claude Code 2.1.x (hook payloads were verified against 2.1.295).
-- Optional: [Ollama](https://ollama.com) with a small model for contextual classification. Without it everything still works in rule-based mode.
+Pick one. Setup never downloads models for you. Measured on a GTX 1650 (19 fixture cases, `scripts/eval-classifier.ts`):
 
-## Install
+| Model | Pull | Size | needs_attention | priority | median latency |
+| --- | --- | --- | --- | --- | --- |
+| `qwen3:1.7b` (default) | `ollama pull qwen3:1.7b` | ~1.4 GB | 16/19 | 18/19 | 1.5 s |
+| `qwen2.5:1.5b` | `ollama pull qwen2.5:1.5b` | ~1 GB | 15/19 | 15/19 | 1.2 s |
+| `qwen2.5:3b` | `ollama pull qwen2.5:3b` | ~2 GB | 15/19 | 15/19 | 1.6 s |
+| `qwen3:4b-instruct-2507-q4_K_M` | `ollama pull qwen3:4b-instruct-2507-q4_K_M` | ~2.5 GB | 17/19 | 14/19 | 6.6 s (too big for 4 GB VRAM) |
+
+`qwen3:8b` (`ollama pull qwen3:8b`, ~5 GB) was also run on a Mac, a different machine from the table above, so the latencies are not comparable:
+
+| Suite | Correct | Errors | p50 | p95 | Runtime |
+| --- | --- | --- | --- | --- | --- |
+| Classifier | 16/19 | 0 | 5.6 s | 11.1 s | 118 s |
+| Task severity | 12/12 | 0 | 4.1 s | not reported | 61 s |
+
+It works well on higher-spec laptops, but its median latency is above the 3 s budget, so the setup benchmark will not pick it on its own. Set it explicitly in `attention setup` or with `OLLAMA_MODEL` if you prefer accuracy over speed.
+
+If you pull several, `attention setup` can benchmark them and keep the best one.
+
+### 3. Install Node.js
+
+Node.js 24 or newer (it uses the built-in `node:sqlite`): `nvm install 24 && nvm use 24`.
+
+### 4. Install from npm
 
 ```bash
 npm i -g attention-manager
+```
+
+### 5. Run it
+
+```bash
 attention
 ```
 
-The first run asks at most three questions and then opens the live UI:
+The first run asks at most three questions, then opens the live UI:
 
-1. **Install the Claude Code hooks** into `~/.claude/settings.json`? Your own hooks are kept, a backup is written to `settings.json.attention-backup` once, and a random ingest token is created (mode 0600). Restart running `claude` sessions afterwards.
-2. **Use local AI classification?** The default is `qwen3:1.7b` on `http://127.0.0.1:11434`; you can pick another URL or model, or rule-based only. Choosing "benchmark my installed models" runs the classifier fixtures against every model installed in Ollama and saves the most accurate one that answers within 3 s on this device (the fastest one if none does). It never pulls models, and `--yes` skips it. If the model is missing, setup prints the exact `ollama pull` command; it never downloads anything itself.
-3. **Test terminal focus?** Setup shows which focus route it detected for your terminal and tries it.
+1. **Install the Claude Code hooks** into `~/.claude/settings.json`? Your own hooks are kept, a backup is written once, and a random ingest token is created (mode 0600). Restart running `claude` sessions afterwards.
+2. **Use local AI classification?** Default `qwen3:1.7b` on `http://127.0.0.1:11434`; pick another URL or model, benchmark your installed models, or choose rule-based only. If the model is missing, setup prints the `ollama pull` command.
+3. **Test terminal focus?** Setup shows the focus route it detected for your terminal and tries it.
 
-Re-run `attention setup` at any time to change the answers, or `attention setup --yes` to accept the defaults non-interactively (CI, scripts). Ports, timeouts, retention and limits are never asked; see [Configuration](#configuration).
+There is nothing to register per session: once the hooks are installed, attention detects every Claude Code session automatically, and new ones appear in the dashboard as soon as they start.
 
-To watch a single project instead of every session, install the hooks into that project's settings: `CLAUDE_SETTINGS_PATH=/path/to/project/.claude/settings.json attention hooks install`.
+Re-run `attention setup` to change the answers, or `attention setup --yes` to accept defaults non-interactively. To watch a single project, install the hooks into its settings: `CLAUDE_SETTINGS_PATH=/path/to/project/.claude/settings.json attention hooks install`. If something looks off, run `attention doctor`.
 
 ## Usage
 
 | Command | What it does |
 | --- | --- |
-| `attention` | Open the UI. Starts a receiver if none is running and stops it again a few seconds after the last UI quits (`--keep-running` leaves it up). A second `attention` attaches to the same receiver. |
+| `attention` | Open the UI. Starts a receiver if none is running and stops it shortly after the last UI quits (`--keep-running` leaves it up). |
 | `attention setup [--yes]` | First-run configuration (re-runnable). |
-| `attention doctor [--json]` | Check the receiver, database, model, hooks, token, terminal focus support and which sessions are focusable. |
-| `attention hooks install \| uninstall \| status` | Manage the Claude Code hooks. `status` flags hooks left over from an older or moved install as stale. |
-| `attention list [--json] [--status s1,s2] [--min-priority p] [--min-risk p] [--sort attention\|recent\|label] [--all]` | Print a snapshot for scripts. `--json` output is versioned (`"version": 1`). |
+| `attention doctor [--json]` | Check the receiver, database, model, hooks, token and terminal focus support. |
+| `attention hooks install \| uninstall \| status` | Manage the Claude Code hooks. `status` flags stale hooks. |
+| `attention list [--json] [--status s1,s2] [--min-priority p] [--min-risk p] [--sort attention\|recent\|label] [--all]` | Print a snapshot for scripts (`--json` is versioned). |
 | `attention focus <session id or label>` | Jump to a session's terminal without opening the UI. |
-| `attention receiver [--port n]` | Run the receiver in the foreground (headless use, debugging). |
-| `attention --version`, `attention --help`, `attention help <command>` | |
+| `attention receiver [--port n]` | Run the receiver in the foreground (headless, debugging). |
 
-Exit codes: `0` ok, `1` error (for example the receiver is not running), `2` misconfiguration or bad usage (missing hooks, invalid config, unknown flag, ambiguous focus target, port in use).
-
-Global flag: `--no-color` (also `NO_COLOR=1`; colour is off automatically when output is not a terminal or `TERM=dumb`). Without a UTF-8 locale, or on the Linux console, the UI uses ASCII glyphs.
+Exit codes: `0` ok, `1` error (for example the receiver is not running), `2` misconfiguration or bad usage. `--no-color` (or `NO_COLOR=1`) disables colour; without a UTF-8 locale the UI uses ASCII glyphs.
 
 ### Key bindings
 
 | Key | Action |
 | --- | --- |
 | `j` / `k`, arrows, `g` / `G`, PgUp / PgDn | Move the selection |
-| `Enter` or `f` | Focus the terminal running the selected session and ring its bell so the right tab is marked |
-| `d` or `Tab` | Full-screen detail view (the detail also sits below the list when the terminal is tall enough) |
+| `Enter` or `f` | Focus the selected session's terminal and ring its bell |
+| `d` or `Tab` | Full-screen detail view |
 | `/` | Filter by label or id (Enter keeps it, Esc restores the previous one) |
 | `s` | Cycle sort: attention, recent, label |
 | `e` | Show or hide ended sessions |
-| `1` `2` `3` `4` | Only critical / high and above / medium and above / low and above risk (press again to clear) |
-| `5` | Clear the priority filter |
+| `1` `2` `3` `4` / `5` | Only critical / high+ / medium+ / low+ risk (press again to clear) / clear the filter |
 | `b` | Toggle the terminal bell on new alerts |
 | `r` | Reconnect to the receiver now |
 | `?` | Help |
-| `q`, `Ctrl-C` | Quit (the terminal is always restored, also on crashes and `SIGTERM`) |
+| `q`, `Ctrl-C` | Quit (the terminal is always restored) |
 
-When a session newly needs you, errors, or starts critical-risk work, its row is moved up and bolded, the header flashes, the status line says why and the bell rings. Banners appear when the receiver is unreachable (with a retry countdown) or the local model is unavailable (rule-based only); both recover on their own.
+When a session newly needs you, errors, or starts critical-risk work, its row moves up, the header flashes and the bell rings. Banners appear when the receiver is unreachable or the local model is unavailable; both recover on their own.
 
 ### Supported terminals
 
-The hook records where each session runs (terminal, multiplexer, tty, process). Enter then uses the most specific route available, for example the tmux pane first and then the window around it.
+The hook records where each session runs; Enter uses the most specific route available (for example the tmux pane first, then the window around it).
 
 | Terminal / environment | macOS | Linux X11 | Linux Wayland | Needs |
 | --- | --- | --- | --- | --- |
@@ -94,83 +115,44 @@ The hook records where each session runs (terminal, multiplexer, tty, process). 
 | GNU screen | yes | yes | yes | `screen` on PATH |
 | kitty | yes | yes | yes | `allow_remote_control yes` (and `listen_on` for focus from outside kitty) |
 | WezTerm | yes | yes | yes | `wezterm` CLI |
-| iTerm2 | yes | | | Automation permission (macOS asks once) |
-| Terminal.app | yes | | | Automation permission (macOS asks once) |
+| iTerm2, Terminal.app | yes | | | Automation permission (macOS asks once) |
 | Any X11 terminal (GNOME Terminal, Konsole, Alacritty, xterm, …) | | yes | | `xdotool` or `wmctrl` |
 | sway, Hyprland | | | yes | `swaymsg` / `hyprctl` |
-| GNOME / KDE on Wayland without the above | | | no | Wayland offers no generic window-focus API |
+| GNOME / KDE on Wayland without the above | | | no | Wayland has no generic window-focus API |
 
-When a session cannot be focused, the status line shows its tty, pid and directory plus a command to copy (for example `tmux select-window -t %3`). `attention doctor` tells you which route works for your current shell.
+When a session cannot be focused, the status line shows its tty, pid, directory and a command to copy.
 
-## Local model
+## How sessions are ranked
 
-```bash
-ollama pull qwen3:1.7b        # default, ~1.4 GB, best accuracy/latency in our evaluation
-ollama pull qwen2.5:1.5b      # lighter alternative (~1 GB, slightly lower accuracy)
-```
+**Task risk.** Each session carries a risk level for its current task. Keyword rules set the floor: DDL, `rm -rf`, force pushes, hard resets, `DELETE FROM`, production deploys and Terraform/kubectl mutations are **critical**; migrations, auth/billing/secrets, `sudo`, `curl | sh` and publishing are **high**; dependency changes, branch switches and broad refactors are **medium**; the rest is **low**. On each new prompt and finished turn the local model may raise the floor by one level, never lower it. A permission request for a critical command shows as attention priority **critical**. The Priority column shows task risk; the Status column says "Needs input".
 
-Evaluation on a GTX 1650 (19 fixture cases, `scripts/eval-classifier.ts`):
+Captured per session: the latest prompt, the last five tool actions ("Tool: command or path") and the agent's last message. Tool outputs, file contents and transcripts are never captured. `CAPTURE_TASK_CONTEXT=0` disables the capture.
 
-| Model | needs_attention correct | priority correct | median latency |
-| --- | --- | --- | --- |
-| qwen3:1.7b | 16/19 | 18/19 | 1.5 s |
-| qwen2.5:1.5b | 15/19 | 15/19 | 1.2 s |
-| qwen2.5:3b | 15/19 | 15/19 | 1.6 s |
-| qwen3:4b-instruct | 17/19 | 14/19 | 6.6 s (does not fit 4 GB VRAM well) |
-
-The model only sees ambiguous events; the deterministic rules already cover permission prompts, question-like turn ends and repeated failures. A user-local Ollama (no root) works too:
-
-```bash
-mkdir -p ~/.local/opt/ollama && cd ~/.local/opt/ollama
-curl -L -o ollama.tar.zst https://github.com/ollama/ollama/releases/latest/download/ollama-linux-amd64.tar.zst
-tar --zstd -xf ollama.tar.zst
-ln -sfn $PWD/bin/ollama ~/.local/bin/ollama
-OLLAMA_MODELS=$PWD/models ollama serve &
-ollama pull qwen3:1.7b
-```
-
-Start the server with `OLLAMA_MODELS` pointing at the user-local models directory every time, otherwise it looks in `~/.ollama/models` and reports pulled models as missing.
-
-## Task severity: which agents to watch
-
-Beyond "who is blocked", each session carries a risk level for how consequential its current task is, so you can keep an eye on the agent rewriting a database schema even while it is still working.
-
-- **Context captured per session:** the latest prompt (first 300 characters), the last five tool actions as "Tool: command or path" snippets, and the agent's last message. Tool outputs, file contents and transcripts are never captured.
-- **Keyword rules first:** DDL (`DROP`/`ALTER`/`TRUNCATE`), `rm -rf`, force pushes, hard resets, `DELETE FROM`, production deploys, Terraform/kubectl mutations are **critical**; migrations, auth/billing/secrets, `sudo`, `curl | sh`, publishing are **high**; dependency changes, branch switches, broad refactors are **medium**; everything else is **low**.
-- **Model second:** on each new prompt and finished turn the local model rates the task. It can raise the keyword floor by at most one level and never lower it. The detail view says "Observed" for keyword matches and "AI confidence nn%" for model verdicts, for both the attention reason and the risk; rows show "AI confidence nn%" in front of a model-written reason.
-- **Escalation:** a permission request for a critical-risk command is shown as attention priority **critical**.
-- **Priority column:** shows the task risk, not whether the session is waiting for input; the status column says "Needs input" for that.
-- **Ranking:** active sessions first, then done ones (turn complete or idle), then ended; within each group task risk, then attention priority, then fresh before stale, then recency.
-
-Set `CAPTURE_TASK_CONTEXT=0` to disable the capture; severity then stays at "none".
-
-## Session states and priorities
+**Ranking.** Active sessions first, then done ones, then ended; within each group task risk, attention priority, fresh before stale, then recency.
 
 | Status | Set by |
 | --- | --- |
 | Starting | `SessionStart` |
 | Working | prompt submitted, tool started or finished |
-| Needs input | `PermissionRequest`, `Notification` of type `permission_prompt`, `idle_prompt` or `elicitation_dialog` |
+| Needs input | `PermissionRequest`, or `Notification` of type `permission_prompt`, `idle_prompt`, `elicitation_dialog` |
 | Error | `PostToolUseFailure` (3 failures in 2 minutes escalate to medium) |
-| Turn complete | `Stop` (a finished turn is never treated as a terminated session) |
+| Turn complete | `Stop` |
 | Idle | tool interrupted by the user |
 | Ended | `SessionEnd` only; sticky until a new `SessionStart` for the same id |
 
-Priorities: permission and dialog prompts are **high**, idle prompts and repeated failures **medium**, single failures and finished turns **low**. The model may raise a priority above these floors, never lower one.
+Attention priority: permission and dialog prompts are **high**, idle prompts and repeated failures **medium**, single failures and finished turns **low**. The model may raise a priority above these floors, never lower one. It only sees ambiguous events; the rules already cover permission prompts, question-like turn ends and repeated failures.
 
 ## Configuration
 
-Settings that most people never touch have defaults and can be overridden with environment variables (see [`env.example`](env.example)) or the config file.
+Defaults work for most people. Override with the config file or environment variables (see [`env.example`](env.example)).
 
 | Data | Linux | macOS |
 | --- | --- | --- |
-| Config (`config.json`, `ingest-token`, `ingest-header`) | `$XDG_CONFIG_HOME/attention-manager` (default `~/.config/attention-manager`) | `~/Library/Application Support/attention-manager` |
+| Config (`config.json`, `ingest-token`) | `$XDG_CONFIG_HOME/attention-manager` (default `~/.config/attention-manager`) | `~/Library/Application Support/attention-manager` |
 | Database (`attention.db`) | `$XDG_STATE_HOME/attention-manager` (default `~/.local/state/attention-manager`) | `~/Library/Application Support/attention-manager` |
 | Receiver log (`receiver.log`) | `~/.local/state/attention-manager/logs` | `~/Library/Logs/attention-manager` |
 
 Directories are created with mode 0700 and files with 0600. `ATTENTION_CONFIG_DIR` and `ATTENTION_STATE_DIR` override the locations.
-
-`config.json` (written by `attention setup`):
 
 ```json
 {
@@ -184,8 +166,8 @@ Directories are created with mode 0700 and files with 0600. `ATTENTION_CONFIG_DI
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
-| `RECEIVER_PORT` / `RECEIVER_HOST` | config `receiver.port` (4318) / `127.0.0.1` | Receiver address. Keep the host on loopback. |
-| `ATTENTION_RECEIVER_URL` | from the port | Where the hook and the CLI find the receiver. |
+| `RECEIVER_PORT` / `RECEIVER_HOST` | config port (4318) / `127.0.0.1` | Receiver address. Keep the host on loopback. |
+| `ATTENTION_RECEIVER_URL` | from the port | Where the hook and CLI find the receiver. |
 | `OLLAMA_URL` / `OLLAMA_MODEL` | from the config | Local model runtime and model. |
 | `CLASSIFY_TIMEOUT_MS` | `15000` | Inference timeout; one retry, then the rule-based state stays. |
 | `STALE_AFTER_MS` | `600000` | Sessions without events for this long are marked stale. |
@@ -193,23 +175,22 @@ Directories are created with mode 0700 and files with 0600. `ATTENTION_CONFIG_DI
 | `DEDUPE_WINDOW_MS` | `5000` | Identical events inside this window are dropped. |
 | `RATE_LIMIT_PER_SESSION` / `RATE_LIMIT_GLOBAL` | `120` / `1200` | Events per minute. |
 | `MAX_BODY_BYTES` | `262144` | Maximum request body. |
-| `RETENTION_DAYS` / `MAX_SESSIONS` | `7` / `1000` | Purge ended sessions after this many days; cap tracked sessions. |
+| `RETENTION_DAYS` / `MAX_SESSIONS` | `7` / `1000` | Purge ended sessions after this long; cap tracked sessions. |
 | `CAPTURE_TASK_CONTEXT` | `1` | `0` stops capturing prompt, command and narration snippets. |
 | `ATTENTION_HOOK_TIMEOUT` | `2` | Seconds the hook waits for the receiver. |
 | `CLAUDE_SETTINGS_PATH` | `~/.claude/settings.json` | Where hooks are installed. |
-| `DATABASE_PATH`, `INGEST_TOKEN_PATH` / `ATTENTION_INGEST_TOKEN` | state / config dir | Database file and ingest token overrides. |
-| `NO_COLOR` | unset | Disable colour. |
+| `DATABASE_PATH`, `INGEST_TOKEN_PATH` / `ATTENTION_INGEST_TOKEN` | state / config dir | File and token overrides. |
 | `LOG_LEVEL` | `info` | `error`, `warn`, `info`, `debug`. Payloads are never logged. |
 
 ## Troubleshooting
 
-- **No sessions appear.** Run `attention doctor`. Hooks must be installed in the settings file Claude Code reads and must not be stale, and the session must have been started after the hooks were installed.
-- **`hooks status` says stale after an upgrade or a Node version change.** Run `attention hooks install` again; the hook command records the absolute Node and package paths.
-- **Enter does not focus.** `attention doctor` lists the focus route for your current shell and how many sessions are focusable. Sessions started before the hooks were (re)installed carry no terminal information until their next event. On GNOME/KDE Wayland, run Claude inside tmux, kitty or WezTerm. In VS Code, GNOME Terminal and other tabbed terminals the window can be raised but not the tab, so Enter also rings the bell on the session's tty; in VS Code turn on `terminal.integrated.enableBell` (or `accessibility.signals.terminalBell`) to see the bell marker on the tab.
+- **No sessions appear.** Run `attention doctor`. Hooks must be installed in the settings file Claude Code reads and not be stale, and the session must have started after they were installed.
+- **`hooks status` says stale after an upgrade or Node change.** Run `attention hooks install` again.
+- **Enter does not focus.** `attention doctor` lists the focus route for your shell. Sessions started before the hooks were (re)installed carry no terminal info until their next event. On GNOME/KDE Wayland, run Claude inside tmux, kitty or WezTerm. In VS Code and other tabbed terminals the window is raised but not the tab, so Enter also rings the bell; in VS Code enable `terminal.integrated.enableBell` to see it.
 - **Permission prompts don't show up.** `Notification` hooks only fire in interactive sessions; `PermissionRequest` fires in both.
-- **Model unavailable banner.** Check `curl http://127.0.0.1:11434/api/tags` and install the model with `ollama pull <model>`. Everything keeps working rule-based.
-- **Port in use.** Another program owns 4318; set `RECEIVER_PORT` or `receiver.port` in the config file.
-- **Receiver problems.** See the receiver log (paths above) or run `attention receiver` in the foreground.
+- **Model unavailable banner.** Check `curl http://127.0.0.1:11434/api/tags` and `ollama pull <model>`. Everything keeps working rule-based.
+- **Port in use.** Set `RECEIVER_PORT` or `receiver.port`.
+- **Receiver problems.** See the receiver log or run `attention receiver` in the foreground.
 
 ## Uninstall
 
@@ -225,45 +206,38 @@ rm -rf ~/Library/Application\ Support/attention-manager ~/Library/Logs/attention
 ```bash
 pnpm install
 pnpm attention            # run the CLI from source (Node 24 type stripping)
-pnpm verify               # lint, typecheck, build, tests (incl. the built-binary smoke test), npm pack --dry-run
+pnpm verify               # lint, typecheck, build, tests, npm pack --dry-run
 node scripts/eval-classifier.ts qwen3:1.7b   # live model evaluation (needs Ollama)
 ```
 
-### Demo
+`scripts/demo.sh` opens six real Claude Code sessions, each in its own terminal window (or `--tmux` for one tmux session), with scenarios that exercise keyword rules and the local model. Run `attention` in your own terminal first. The sessions use your Claude plan or API credits and nothing is approved for you. `scripts/demo.sh --help` lists the options; `--clean` removes the demo folders.
 
-`scripts/demo.sh` opens six real Claude Code sessions (run `attention` in your own terminal first; `--tui` opens it in a window too), each in its own terminal window (or `--tmux` for one tmux session). Three are worded so that no keyword rule matches and the local model (Ollama) decides: one ends its turn asking you to choose without a question mark, one asks to empty a live customer file, and one runs a command that fails harmlessly and should stay low. The others are a file-write approval, an `rm -rf` of the build folder (a keyword rule flags it, the AI explains it) and a one-word answer. Each runs in a folder under `${ATTENTION_DEMO_DIR:-/tmp/attention-demo}` named after its scenario, which becomes its label in the TUI. The script warns if the local model is not available. The sessions use your Claude plan or API credits, nothing is approved for you, and on the first run each window asks you to trust its folder. `scripts/demo.sh --help` lists the options; `scripts/demo.sh --clean` removes the folders.
-
-The package name and binary name live only in `package.json` (`name`, `bin`); everything else, including the data directory names, derives from them.
+The package and binary names live only in `package.json` (`name`, `bin`); everything else derives from them.
 
 ## How this was built
 
-### Developed with Claude
-
-attention was developed with [Claude Code](https://claude.com/claude-code). The commit history credits Claude Opus 5.5, Claude Fable 5.1 and Claude Sonnet 5.5 as co-authors. Claude wrote code and tests against a test-first workflow, and the decisions and verification for each feature are recorded in `docs/worklogs/`. Development used Claude online through Anthropic. The tool you install does not call Claude or any other online model.
-
-### Which AI runs where
+attention was developed with [Claude Code](https://claude.com/claude-code); the commit history credits Claude Opus 5.5, Fable 5.1 and Sonnet 5.5 as co-authors, and decisions and verification are recorded in `docs/worklogs/`. The tool you install does not call Claude or any other online model.
 
 | Used for | Model | Runs |
 | --- | --- | --- |
-| Ranking and explaining sessions (the product) | `qwen3:1.7b` via Ollama (default; picked by the setup benchmark on a GTX 1650) | **Local**, nothing leaves the machine |
-| Alternatives measured by the benchmark | `qwen2.5:1.5b`, `qwen2.5:3b`, `qwen3:4b-instruct-2507` (Q4_K_M) via Ollama | **Local** |
+| Ranking and explaining sessions | `qwen3:1.7b` via Ollama (default; picked by the setup benchmark) | **Local** |
 | Fallback without a model | Keyword and event rules | **Local** |
-| The agents being watched | Claude Code (the demo sessions run Claude Haiku 5.5) | **Online**, Anthropic |
+| The agents being watched | Claude Code | **Online**, Anthropic |
 | Building attention | Claude Opus 5.5, Fable 5.1, Sonnet 5.5 in Claude Code | **Online**, Anthropic |
-| Demo video narration | Kokoro 82M v1.0 (open weights, ONNX via `kokoro-onnx`, voice `am_michael`) | **Local** |
+| Demo video narration | Kokoro 82M v1.0 (open weights, voice `am_michael`) | **Local** |
 
-attention only talks to the Ollama URL you configure, which defaults to `127.0.0.1`. Setup never downloads a model; it prints the `ollama pull` command instead.
+attention only talks to the Ollama URL you configure, which defaults to `127.0.0.1`. The demo video is real footage (asciicast recordings of attention next to six Claude Code sessions, replayed with [pyte](https://github.com/selectel/pyte) and composed in [Remotion](https://www.remotion.dev)); the rankings on screen come from `qwen3:1.7b` running locally.
 
-### The demo video
+## Open source we build on
 
-The demo video is made from real footage, not mock-ups, in a separate Remotion project:
+attention stands on open source projects, each under its own license and not affiliated with this project:
 
-- **Recording:** a small Python recorder runs `attention setup` (with the model benchmark) and the attention TUI next to six real Claude Code 2.1.295 sessions, each in its own pseudo-terminal on a shared clock. It records asciicast files against an isolated receiver. Only the folder-trust dialog is answered; tool permission prompts are never approved.
-- **Rendering terminals:** [pyte](https://github.com/selectel/pyte) replays the recordings into screen snapshots, which React components draw frame by frame.
-- **Editing and rendering:** [Remotion](https://www.remotion.dev) 4 with React 19 composes the scenes, captions and cuts. The 5-minute benchmark is shown sped up and labelled as such.
-- **Voiceover:** Kokoro TTS, generated locally.
-- **Local AI in the video:** the rankings and reasons on screen come from `qwen3:1.7b` running in Ollama on the recording machine.
+- [Ollama](https://ollama.com) runs the local model; [Qwen](https://github.com/QwenLM/Qwen3) models do the classification.
+- [Ink](https://github.com/vadimdemedes/ink) and [React](https://react.dev) render the terminal UI.
+- [Zod](https://zod.dev) validates hook payloads and configuration.
+- [@clack/prompts](https://github.com/bombshell-dev/clack) drives the setup prompts.
+- Node.js provides the runtime and the built-in `node:sqlite` store.
 
 ## Privacy
 
-Stored per event: session id, normalized event type, receive time, a sanitized summary (tool name, first error line, notification message truncated to 100 characters) and a hash for deduplication. Stored per session for task severity (unless `CAPTURE_TASK_CONTEXT=0`): a 160-character prompt snippet, the last five "Tool: command or path" snippets and a 300-character snippet of the agent's last message. Stored per session for terminal focus: the terminal program, multiplexer pane or window ids, tty, the Claude process id and its parent process ids, and the session's working directory. Never stored or displayed: tool outputs, file contents, transcript paths. Secret-looking strings are redacted before anything is summarised or sent to the model. The model only receives the event type, tool name, and up to 400 sanitized characters of the relevant text.
+Stored per event: session id, event type, receive time, a sanitized summary (tool name, first error line, notification message truncated to 100 characters) and a deduplication hash. Stored per session for task severity (unless `CAPTURE_TASK_CONTEXT=0`): a 160-character prompt snippet, the last five tool-action snippets and a 300-character snippet of the agent's last message. Stored per session for terminal focus: terminal program, multiplexer pane or window ids, tty, the Claude process id and its parents, and the working directory. Never stored or displayed: tool outputs, file contents, transcript paths. Secret-looking strings are redacted before anything is summarised or sent to the model, which only receives the event type, tool name and up to 400 sanitized characters.
