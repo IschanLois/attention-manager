@@ -79,3 +79,36 @@ Attention priority mostly reflects whether a session is waiting for input (permi
 
 - **Automated:** `npm test`, which runs the sort tests for both copies.
 - **Manual:** run the demo. A risky session such as risky-cleanup sits above a session waiting on a low-risk permission prompt. When a session's turn completes, it drops below every active session and stays above ended ones.
+
+## Risk in the priority column, "Needs input" status
+
+**Branch:** `feat/risk-first-sort`
+**Date:** 2026-10-10
+
+### Purpose
+
+The PRIORITY column showed the attention priority. That value mostly says whether a session is waiting for input, which the STATUS column already shows. The user asked for the column to show the session's risk, and for the "Needs attention" status to read "Needs input".
+
+### Decisions
+
+- The PRIORITY column, in the TUI and in the `attention list` table, now shows `taskSeverity`. The `attention list --json` output still returns `priority` and does not add a field, so the versioned contract is unchanged.
+- The per-row risk badge (`⚠ critical` or `!critical`) is removed because the column now carries the same information. The risk reason is still in the detail view.
+- The TUI filter keys `1`-`4` now filter on risk (`filters.risks`), so they match the column. The CLI flags `--min-priority` and `--min-risk` are unchanged.
+- The `needs_attention` label and the live announcement now say "Needs input" and "now needs input". The internal status value `needs_attention` is unchanged.
+
+### Changes
+
+- `src/cli/tui/components.tsx`: the column shows the risk, the badge is removed, and the filter summary reads `filters.risks`.
+- `src/cli/tui/state.ts`: the priority shortcut keys set `filters.risks`.
+- `src/cli/commands/list.ts`: the table's PRIORITY column shows the risk.
+- `src/cli/model/types.ts` and `src/cli/model/announce.ts`: the "Needs input" wording.
+- `README.md` and `docs/how-it-works.md`: the screenshot, key table, ranking and walkthrough.
+- Tests: `tests/tui-render.test.tsx`, `tests/tui-state.test.ts`, `tests/cli-model.test.ts` and `tests/cli-commands.test.ts`.
+
+### Test plan
+
+- **Automated:**
+  - The render test checks that a waiting session with high priority and critical risk shows `CRITICAL ... Needs input`, has no badge, and that the filter summary reads `priority critical+`.
+  - The state test checks that the `1`-`4` keys set the risk filter.
+  - The announcement and `list` tests check the "Needs input" wording.
+- **Manual:** run the demo. The PRIORITY column matches the risk in the detail view, and the waiting sessions read "Needs input".

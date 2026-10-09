@@ -60,7 +60,7 @@ The receiver keeps one record per session and updates it with a fixed set of rul
 | --- | --- |
 | Starting | Started, nothing else known yet |
 | Working | A prompt was submitted or a tool is running |
-| Needs attention | Waiting for a permission decision, an answer in a dialog, or your input |
+| Needs input | Waiting for a permission decision, an answer in a dialog, or your input |
 | Error | A tool failed; three failures in two minutes escalate |
 | Completed | The turn finished. The session is still open and waiting for the next prompt. This is **not** the same as ended |
 | Idle | You interrupted the agent |
@@ -105,15 +105,15 @@ Its answer is a strict JSON object that is validated before use. It can change a
 
 Run `attention`. It lists every session as a row, ordered so the most important is on top:
 
-1. active sessions before ended ones,
-2. higher attention priority first,
-3. within the same priority, higher task severity first,
+1. active sessions first, then done ones (turn complete or idle), then ended ones,
+2. higher task severity first,
+3. within the same severity, higher attention priority first,
 4. fresh before stale,
 5. most recent first.
 
-The list spans the full width under a column header. Each row shows a status glyph, the priority, the project name, the status, how long ago the last event arrived, the terminal it runs in (100+ columns), a risk badge for medium or higher task severity, and the reason (or the last event when nothing needs you). The task summary lives only in the detail. When the terminal is tall enough the selected session's details sit below the list (reason and evidence, task and risk, recent actions, recent events, where it runs); on a short one `d` drills into them.
+The list spans the full width under a column header. Each row shows a status glyph, the priority (the task severity), the project name, the status, how long ago the last event arrived, the terminal it runs in (100+ columns), and the reason (or the last event when nothing needs you). The task summary lives only in the detail. When the terminal is tall enough the selected session's details sit below the list (reason and evidence, task and risk, recent actions, recent events, where it runs); on a short one `d` drills into them.
 
-The header shows the connection, the model, how many sessions need attention and how many are high-risk. When a session newly needs you, errors, or starts critical-risk work, its row is highlighted, the header flashes, a status line says why, and the terminal bell rings (toggle with `b`). Filters (`/` label, `1`-`5` priority, `e` ended) and sort (`s`) are one key away; `?` lists them all.
+The header shows the connection, the model, how many sessions need attention and how many are high-risk. When a session newly needs you, errors, or starts critical-risk work, its row is highlighted, the header flashes, a status line says why, and the terminal bell rings (toggle with `b`). Filters (`/` label, `1`-`5` task severity, `e` ended) and sort (`s`) are one key away; `?` lists them all.
 
 ### Jumping to the session
 
@@ -136,8 +136,8 @@ Press Enter (or `f`) on a row and the UI switches to that session's terminal: th
 ## A typical session, end to end
 
 1. You install it with `npm i -g attention-manager` and run `attention`. Setup asks three questions (hooks, local AI, terminal focus test) and opens the UI, which is empty with instructions.
-2. You start Claude Code in a tmux pane and type "Write a migration that drops the legacy_users table". A row appears: **Working**, **⚠ critical** (keyword "drops the legacy_users table"), task line in the detail. A moment later the model agrees and the detail says "AI · 85%".
-3. The agent asks to run `psql`. The row becomes **Needs attention / CRITICAL** with the reason "Waiting for permission to run Bash (critical-risk: Matched "DROP TABLE")", jumps to the top, flashes and rings the bell.
+2. You start Claude Code in a tmux pane and type "Write a migration that drops the legacy_users table". A row appears at the top: **CRITICAL / Working** (keyword "drops the legacy_users table"), task line in the detail. A moment later the model agrees and the detail says "AI · 85%".
+3. The agent asks to run `psql`. The row becomes **CRITICAL / Needs input** with the reason "Waiting for permission to run Bash (critical-risk: Matched "DROP TABLE")", flashes and rings the bell.
 4. You press Enter. The UI selects that tmux pane; you decide there. The tool runs or is denied; the row returns to **Working**.
-5. The agent finishes with "Should I also remove the backup table?". The row shows **Turn complete / Medium**, "appears to be asking a question", then the model confirms it is a question for you.
+5. The agent finishes with "Should I also remove the backup table?". The row shows **CRITICAL / Turn complete** and drops below the sessions that are still working, with "appears to be asking a question" until the model confirms it is a question for you.
 6. You close the session. The row moves out of view (press `e` to show ended sessions) and is purged after seven days.

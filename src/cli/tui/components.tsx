@@ -2,13 +2,12 @@ import { Box, Text } from "ink";
 import type { ReactNode } from "react";
 import { attentionCount, highRiskCount } from "../model/sort.ts";
 import { humaniseEventType, relativeTime, sessionLabel, sourceLabel } from "../model/format.ts";
-import { PRIORITY_LABELS, RISK_LABELS, STATUS_LABELS, type HealthReport, type Priority, type SessionView, type StoredEvent } from "../model/types.ts";
+import { PRIORITY_LABELS, RISK_LABELS, STATUS_LABELS, type HealthReport, type SessionView, type StoredEvent } from "../model/types.ts";
 import type { TerminalInfo } from "../../core/terminal.ts";
 import type { TuiState } from "./state.ts";
 import { windowRows, wrapSegments, type Line, type Segment } from "./layout.ts";
 import type { ColorName, Theme } from "./theme.ts";
 
-const RISK_SHOWN: Priority[] = ["critical", "high", "medium"];
 
 function pad(text: string, width: number): string {
   return text.length >= width ? text.slice(0, width) : text + " ".repeat(width - text.length);
@@ -97,7 +96,7 @@ export function filterLines(state: TuiState, theme: Theme, width: number): Line[
   const { filters } = state;
   const gray = theme.color("gray");
   const parts = [`sort ${filters.sort}`, filters.hideEnded ? "ended hidden" : "ended shown"];
-  if (filters.priorities.length) parts.push(`priority ${filters.priorities.at(-1)}+`);
+  if (filters.risks.length) parts.push(`priority ${filters.risks.at(-1)}+`);
   if (state.labelDraft === null && filters.label) parts.push(`label "${filters.label}"`);
   const draft: Segment[] = state.labelDraft !== null ? [{ text: `/${state.labelDraft}${theme.unicode ? "█" : "_"}`, color: theme.color("cyan") }, { text: "  ", gap: true }] : [];
   return wrapSegments([...draft, ...joined(parts.map((text) => ({ text, color: gray, keep: true })), ` ${theme.glyphs.sep} `, gray)], width);
@@ -105,11 +104,6 @@ export function filterLines(state: TuiState, theme: Theme, width: number): Line[
 
 function aiTag(confidence: number | null): string {
   return confidence === null ? "AI" : `AI confidence ${Math.round(confidence * 100)}%`;
-}
-
-function riskBadge(session: SessionView, theme: Theme): string {
-  if (!RISK_SHOWN.includes(session.taskSeverity)) return "";
-  return theme.unicode ? `⚠ ${session.taskSeverity}` : `!${session.taskSeverity}`;
 }
 
 const TERMINAL_COLUMN_MIN_WIDTH = 100;
@@ -157,20 +151,18 @@ function rowLines(session: SessionView, selected: boolean, now: number, theme: T
   const { glyphs } = theme;
   const label = sessionLabel(session.label, session.sessionId);
   const reason = session.attentionReason ?? humaniseEventType(session.lastEventType);
-  const risk = riskBadge(session, theme);
   const ai = session.attentionReason && session.classificationSource === "ai" ? aiTag(session.classificationConfidence) : "";
   const segments: Segment[] = [
     { text: selected ? glyphs.selected : glyphs.unselected, color: theme.color("cyan"), keep: true },
     { text: " " },
     { text: glyphs.status[session.status], color: theme.statusColor(session.status), keep: true },
     { text: " " },
-    { text: pad(PRIORITY_LABELS[session.priority], PRIORITY_WIDTH), color: theme.priorityColor(session.priority), keep: true },
+    { text: pad(PRIORITY_LABELS[session.taskSeverity], PRIORITY_WIDTH), color: theme.priorityColor(session.taskSeverity), keep: true },
     { text: `${pad(label, layout.label)} `, keep: true },
     { text: `${pad(STATUS_LABELS[session.status], STATUS_WIDTH)} `, color: theme.statusColor(session.status), keep: true },
     { text: pad(relativeTime(session.lastSeenAt, now), SEEN_WIDTH), keep: true },
   ];
   if (layout.terminal) segments.push({ text: `${pad(terminalShort(session.terminal), TERMINAL_WIDTH)} `, color: theme.color("blue"), keep: true });
-  if (risk) segments.push({ text: `${risk} `, color: theme.priorityColor(session.taskSeverity), keep: true });
   if (ai) segments.push({ text: `${ai} `, color: theme.color("white"), keep: true });
   segments.push({ text: reason, color: theme.color("white") });
   return wrapSegments(segments, width, { indent: layout.indent });

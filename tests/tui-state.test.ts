@@ -5,7 +5,7 @@ import { FIXTURE_NOW, minutesAgo, sessionView } from "./fixtures/sessions";
 const snapshot = (sessions = SESSIONS) => ({ type: "snapshot" as const, snapshot: { sessions, now: new Date(FIXTURE_NOW).toISOString(), staleAfterMs: 600_000 } });
 
 const SESSIONS = [
-  sessionView({ sessionId: "sess-a-00000001", label: "alpha", priority: "high", status: "needs_attention", lastSeenAt: minutesAgo(2) }),
+  sessionView({ sessionId: "sess-a-00000001", label: "alpha", priority: "high", status: "needs_attention", taskSeverity: "high", lastSeenAt: minutesAgo(2) }),
   sessionView({ sessionId: "sess-b-00000001", label: "beta", lastSeenAt: minutesAgo(1) }),
   sessionView({ sessionId: "sess-c-00000001", label: "gamma", status: "ended", endedAt: minutesAgo(5), lastSeenAt: minutesAgo(5) }),
 ];
@@ -37,7 +37,7 @@ describe("tui state", () => {
 
   it("keeps the selection on the same session when the order changes, and clamps when it disappears", () => {
     let state = reduce(loaded(), { type: "move", delta: 1 });
-    const urgentBeta = sessionView({ sessionId: "sess-b-00000001", label: "beta", priority: "critical", status: "error" });
+    const urgentBeta = sessionView({ sessionId: "sess-b-00000001", label: "beta", priority: "critical", status: "error", taskSeverity: "critical" });
     state = reduce(state, { type: "session", session: urgentBeta, at: FIXTURE_NOW });
     expect(ids(state)).toEqual(["beta", "alpha"]);
     expect(selectedSession(state, FIXTURE_NOW)?.label).toBe("beta");
@@ -45,12 +45,12 @@ describe("tui state", () => {
     expect(selectedSession(state, FIXTURE_NOW)?.label).toBe("alpha");
   });
 
-  it("raises a highlight, a header flash, a bell and a status line when a session newly needs attention", () => {
+  it("raises a highlight, a header flash, a bell and a status line when a session newly needs input", () => {
     const state = reduce(loaded(), { type: "session", session: sessionView({ sessionId: "sess-b-00000001", label: "beta", status: "needs_attention", attentionReason: "Waiting for input" }), at: FIXTURE_NOW });
     expect(state.highlights["sess-b-00000001"]).toBeGreaterThan(FIXTURE_NOW);
     expect(state.flashUntil).toBeGreaterThan(FIXTURE_NOW);
     expect(state.bellCount).toBe(1);
-    expect(state.status).toMatchObject({ text: "Session beta now needs attention: Waiting for input", tone: "warn" });
+    expect(state.status).toMatchObject({ text: "Session beta now needs input: Waiting for input", tone: "warn" });
   });
 
   it("cues on critical risk, does not ring when the bell is off, and does not repeat for the same state", () => {
@@ -76,7 +76,7 @@ describe("tui state", () => {
     expect(state.status).toBeNull();
   });
 
-  it("cycles sort modes, toggles ended sessions and applies priority shortcuts", () => {
+  it("cycles sort modes, toggles ended sessions and applies risk shortcuts", () => {
     let state = loaded();
     state = reduce(state, { type: "cycle-sort" });
     expect(state.filters.sort).toBe("recent");
@@ -84,13 +84,14 @@ describe("tui state", () => {
     state = reduce(state, { type: "toggle-ended" });
     expect(ids(state)).toContain("gamma");
     state = reduce(state, { type: "priority", level: 2 });
-    expect(state.filters.priorities).toEqual(["critical", "high"]);
+    expect(state.filters.risks).toEqual(["critical", "high"]);
+    expect(state.filters.priorities).toEqual([]);
     expect(ids(state)).toEqual(["alpha"]);
     state = reduce(state, { type: "priority", level: 2 });
-    expect(state.filters.priorities).toEqual([]);
+    expect(state.filters.risks).toEqual([]);
     state = reduce(state, { type: "priority", level: 3 });
     state = reduce(state, { type: "priority", level: 5 });
-    expect(state.filters.priorities).toEqual([]);
+    expect(state.filters.risks).toEqual([]);
   });
 
   it("edits a label query and applies it live, restoring it on cancel", () => {
