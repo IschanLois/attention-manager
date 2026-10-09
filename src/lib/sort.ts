@@ -20,6 +20,8 @@ function compareAttention(a: SessionView, b: SessionView, nowMs: number, staleAf
   if (endedDiff !== 0) return endedDiff;
   const priorityDiff = PRIORITY_RANK[a.priority] - PRIORITY_RANK[b.priority];
   if (priorityDiff !== 0) return priorityDiff;
+  const severityDiff = PRIORITY_RANK[a.taskSeverity] - PRIORITY_RANK[b.taskSeverity];
+  if (severityDiff !== 0) return severityDiff;
   const staleDiff = Number(isStale(a, nowMs, staleAfterMs)) - Number(isStale(b, nowMs, staleAfterMs));
   if (staleDiff !== 0) return staleDiff;
   const recency = Date.parse(b.lastSeenAt) - Date.parse(a.lastSeenAt);
@@ -55,4 +57,12 @@ export function needsAttention(session: Pick<SessionView, "status" | "priority">
 
 export function attentionCount(sessions: readonly SessionView[]): number {
   return sessions.filter(needsAttention).length;
+}
+
+export function isHighRisk(session: Pick<SessionView, "status" | "taskSeverity">): boolean {
+  return session.status !== "ended" && PRIORITY_RANK[session.taskSeverity] <= PRIORITY_RANK.high;
+}
+
+export function highRiskCount(sessions: readonly SessionView[]): number {
+  return sessions.filter(isHighRisk).length;
 }

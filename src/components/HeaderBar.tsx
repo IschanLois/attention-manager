@@ -12,10 +12,12 @@ const CONNECTION_TEXT: Record<ConnectionState, string> = {
 export function HeaderBar({
   connection,
   attentionCount,
+  highRiskCount,
   onReconnect,
 }: {
   connection: ConnectionState;
   attentionCount: number;
+  highRiskCount: number;
   onReconnect: () => void;
 }) {
   const dot =
@@ -34,6 +36,8 @@ export function HeaderBar({
         <span className={attentionCount > 0 ? "font-medium text-foreground" : ""}>
           {attentionCount} need{attentionCount === 1 ? "s" : ""} attention
         </span>
+        <span aria-hidden="true">·</span>
+        <span className={highRiskCount > 0 ? "font-medium text-red-700 dark:text-red-300" : ""}>{highRiskCount} high-risk</span>
       </p>
       <button
         type="button"

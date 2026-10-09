@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { attentionCount, sortSessions } from "@/lib/sort";
+import { attentionCount, highRiskCount, sortSessions } from "@/lib/sort";
 import type { SessionView } from "@/lib/types";
 
 const NOW = Date.parse("2026-10-09T10:00:00.000Z");
@@ -28,34 +28,58 @@ function session(id: string, overrides: Partial<SessionView> = {}): SessionView 
     recentFailureTimes: [],
     pendingPermissionToolUseId: null,
     eventSeq: 0,
+    taskSummary: null,
+    recentActions: [],
+    lastNarration: null,
+    taskRuleSeverity: "none",
+    taskSeverity: "none",
+    taskSeveritySource: "rule",
+    taskSeverityReason: null,
+    taskSeverityEvidence: [],
+    taskSeverityConfidence: null,
+    taskClassifiedAt: null,
     stale: false,
     ...overrides,
   };
 }
 
 describe("sortSessions (attention)", () => {
-  it("orders active before ended, then by priority, stale after fresh, then recency, then id", () => {
+  it("orders active before ended, then by priority, then task severity, stale after fresh, then recency, then id", () => {
     const input = [
       session("ended-high", { status: "ended", priority: "high", endedAt: at(2), lastSeenAt: at(0) }),
       session("low-fresh", { priority: "low" }),
       session("high-stale", { priority: "high", status: "needs_attention", lastSeenAt: at(30) }),
       session("high-fresh-old", { priority: "high", status: "needs_attention", lastSeenAt: at(5) }),
       session("high-fresh-new", { priority: "high", status: "needs_attention", lastSeenAt: at(2) }),
+      session("high-risky-stale", { priority: "high", status: "needs_attention", lastSeenAt: at(30), taskSeverity: "critical" }),
       session("critical", { priority: "critical", status: "error", lastSeenAt: at(9) }),
       session("none-b", { lastSeenAt: at(3) }),
       session("none-a", { lastSeenAt: at(3) }),
+      session("none-risky-old", { lastSeenAt: at(40), taskSeverity: "medium" }),
     ];
     const sorted = sortSessions(input, { nowMs: NOW, staleAfterMs: STALE_AFTER, mode: "attention" });
     expect(sorted.map((s) => s.sessionId)).toEqual([
       "critical",
+      "high-risky-stale",
       "high-fresh-new",
       "high-fresh-old",
       "high-stale",
       "low-fresh",
+      "none-risky-old",
       "none-a",
       "none-b",
       "ended-high",
     ]);
+  });
+
+  it("ranks task severity below attention priority but above freshness", () => {
+    const input = [
+      session("low-attention-no-risk", { priority: "low", taskSeverity: "none" }),
+      session("no-attention-critical-risk", { priority: "none", taskSeverity: "critical" }),
+      session("no-attention-high-risk", { priority: "none", taskSeverity: "high" }),
+    ];
+    const sorted = sortSessions(input, { nowMs: NOW, staleAfterMs: STALE_AFTER, mode: "attention" });
+    expect(sorted.map((s) => s.sessionId)).toEqual(["low-attention-no-risk", "no-attention-critical-risk", "no-attention-high-risk"]);
   });
 
   it("does not mutate the input", () => {
@@ -98,5 +122,18 @@ describe("attentionCount", () => {
       session("4", { priority: "high", status: "ended", endedAt: at(1) }),
     ];
     expect(attentionCount(input)).toBe(2);
+  });
+});
+
+describe("highRiskCount", () => {
+  it("counts active sessions whose task severity is critical or high", () => {
+    const input = [
+      session("1", { taskSeverity: "critical" }),
+      session("2", { taskSeverity: "high", status: "idle" }),
+      session("3", { taskSeverity: "medium" }),
+      session("4", { taskSeverity: "critical", status: "ended", endedAt: at(1) }),
+      session("5", { priority: "critical", taskSeverity: "none" }),
+    ];
+    expect(highRiskCount(input)).toBe(2);
   });
 });

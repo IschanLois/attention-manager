@@ -11,6 +11,7 @@ export type SortMode = "attention" | "recent" | "label";
 export interface Filters {
   statuses: SessionStatus[];
   priorities: Priority[];
+  risks: Priority[];
   hideEnded: boolean;
   sort: SortMode;
 }
@@ -35,4 +36,12 @@ export const PRIORITY_LABELS: Record<Priority, string> = {
   medium: "MEDIUM",
   low: "LOW",
   none: "None",
+};
+
+export const RISK_LABELS: Record<Priority, string> = {
+  critical: "Critical risk",
+  high: "High risk",
+  medium: "Medium risk",
+  low: "Low risk",
+  none: "No risk",
 };

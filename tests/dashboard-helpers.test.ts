@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { humaniseEventType, relativeTime, relativeTimeAgo, shortId, sourceLabel } from "@/lib/format";
 import { applyFilters, DEFAULT_FILTERS, parseFilters, serializeFilters } from "@/lib/filters";
+import { announcementFor } from "@/lib/hooks/useSessionStream";
 import { isStale } from "@/lib/sort";
 import type { SessionView } from "@/lib/types";
 
@@ -25,6 +26,16 @@ function session(overrides: Partial<SessionView> = {}): SessionView {
     recentFailureTimes: [],
     pendingPermissionToolUseId: null,
     eventSeq: 0,
+    taskSummary: null,
+    recentActions: [],
+    lastNarration: null,
+    taskRuleSeverity: "none",
+    taskSeverity: "none",
+    taskSeveritySource: "rule",
+    taskSeverityReason: null,
+    taskSeverityEvidence: [],
+    taskSeverityConfidence: null,
+    taskClassifiedAt: null,
     stale: false,
     ...overrides,
   };
@@ -94,28 +105,62 @@ describe("isStale", () => {
 
 describe("filters", () => {
   it("parses and serialises url search params round-trip", () => {
-    const parsed = parseFilters({ status: "working,error", priority: "high", ended: "show", sort: "recent" });
-    expect(parsed).toEqual({ statuses: ["working", "error"], priorities: ["high"], hideEnded: false, sort: "recent" });
-    expect(serializeFilters(parsed)).toBe("status=working%2Cerror&priority=high&ended=show&sort=recent");
+    const parsed = parseFilters({ status: "working,error", priority: "high", risk: "critical,high", ended: "show", sort: "recent" });
+    expect(parsed).toEqual({
+      statuses: ["working", "error"],
+      priorities: ["high"],
+      risks: ["critical", "high"],
+      hideEnded: false,
+      sort: "recent",
+    });
+    expect(serializeFilters(parsed)).toBe("status=working%2Cerror&priority=high&risk=critical%2Chigh&ended=show&sort=recent");
     expect(serializeFilters(DEFAULT_FILTERS)).toBe("");
   });
 
   it("ignores unknown values", () => {
-    const parsed = parseFilters({ status: "bogus,idle", priority: ["nope"], sort: "weird" });
-    expect(parsed).toEqual({ statuses: ["idle"], priorities: [], hideEnded: true, sort: "attention" });
+    const parsed = parseFilters({ status: "bogus,idle", priority: ["nope"], risk: "severe", sort: "weird" });
+    expect(parsed).toEqual({ statuses: ["idle"], priorities: [], risks: [], hideEnded: true, sort: "attention" });
   });
 
-  it("applies status, priority and hide-ended filters", () => {
+  it("applies status, priority, risk and hide-ended filters", () => {
     const list = [
-      session({ sessionId: "a-aaaaaaaaaa", status: "working", priority: "none" }),
+      session({ sessionId: "a-aaaaaaaaaa", status: "working", priority: "none", taskSeverity: "critical" }),
       session({ sessionId: "b-bbbbbbbbbb", status: "needs_attention", priority: "high" }),
       session({ sessionId: "c-cccccccccc", status: "ended", priority: "none", endedAt: "2026-10-09T09:30:00.000Z" }),
     ];
+    expect(applyFilters(list, { ...DEFAULT_FILTERS, risks: ["critical"] }).map((s) => s.sessionId)).toEqual(["a-aaaaaaaaaa"]);
+    expect(applyFilters(list, { ...DEFAULT_FILTERS, risks: ["none"], hideEnded: false }).map((s) => s.sessionId)).toEqual([
+      "b-bbbbbbbbbb",
+      "c-cccccccccc",
+    ]);
     expect(applyFilters(list, DEFAULT_FILTERS).map((s) => s.sessionId)).toEqual(["a-aaaaaaaaaa", "b-bbbbbbbbbb"]);
     expect(applyFilters(list, { ...DEFAULT_FILTERS, hideEnded: false }).length).toBe(3);
     expect(applyFilters(list, { ...DEFAULT_FILTERS, priorities: ["high"] }).map((s) => s.sessionId)).toEqual(["b-bbbbbbbbbb"]);
     expect(applyFilters(list, { ...DEFAULT_FILTERS, statuses: ["ended"], hideEnded: false }).map((s) => s.sessionId)).toEqual([
       "c-cccccccccc",
     ]);
+  });
+});
+
+describe("announcementFor", () => {
+  it("announces a session that starts needing attention", () => {
+    const before = session();
+    const after = session({ status: "needs_attention", priority: "high", attentionReason: "Waiting for permission" });
+    expect(announcementFor(before, after)).toBe("Session demo now needs attention: Waiting for permission");
+    expect(announcementFor(after, after)).toBeNull();
+  });
+
+  it("announces when an active session starts doing critical-risk work", () => {
+    const before = session({ taskSeverity: "high" });
+    const after = session({ taskSeverity: "critical", taskSeverityReason: "Dropping the legacy_users table" });
+    expect(announcementFor(before, after)).toBe("Session demo is now doing critical-risk work: Dropping the legacy_users table");
+    expect(announcementFor(undefined, session({ taskSeverity: "critical" }))).toBe("Session demo is now doing critical-risk work");
+    expect(announcementFor(after, after)).toBeNull();
+    expect(announcementFor(before, session({ taskSeverity: "critical", status: "ended" }))).toBeNull();
+  });
+
+  it("combines both announcements when they happen on the same update", () => {
+    const after = session({ status: "error", attentionReason: "Tool failed", taskSeverity: "critical", taskSeverityReason: "Force push" });
+    expect(announcementFor(session(), after)).toBe("Session demo reported an error: Tool failed. Session demo is now doing critical-risk work: Force push");
   });
 });

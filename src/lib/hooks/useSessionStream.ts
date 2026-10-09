@@ -31,13 +31,32 @@ const OFFLINE_AFTER_FAILURES = 3;
 const HEALTH_POLL_MS = 60_000;
 const ANNOUNCEMENT_TTL_MS = 6_000;
 
-function alertTransition(previous: SessionView | undefined, next: SessionView): string | null {
+function sessionName(session: SessionView): string {
+  return session.label ?? `session …${session.sessionId.slice(-4)}`;
+}
+
+function withReason(sentence: string, reason: string | null): string {
+  return reason ? `${sentence}: ${reason}` : sentence;
+}
+
+function attentionTransition(previous: SessionView | undefined, next: SessionView): string | null {
   const wasAlerting = previous?.status === "needs_attention" || previous?.status === "error";
   const isAlerting = next.status === "needs_attention" || next.status === "error";
   if (!isAlerting || wasAlerting) return null;
-  const name = next.label ?? `session …${next.sessionId.slice(-4)}`;
   const what = next.status === "error" ? "reported an error" : "now needs attention";
-  return next.attentionReason ? `Session ${name} ${what}: ${next.attentionReason}` : `Session ${name} ${what}`;
+  return withReason(`Session ${sessionName(next)} ${what}`, next.attentionReason);
+}
+
+function riskTransition(previous: SessionView | undefined, next: SessionView): string | null {
+  if (next.status === "ended" || next.taskSeverity !== "critical" || previous?.taskSeverity === "critical") return null;
+  return withReason(`Session ${sessionName(next)} is now doing critical-risk work`, next.taskSeverityReason);
+}
+
+export function announcementFor(previous: SessionView | undefined, next: SessionView): string | null {
+  const attention = attentionTransition(previous, next);
+  const risk = riskTransition(previous, next);
+  if (attention && risk) return `${attention}. ${risk}`;
+  return attention ?? risk;
 }
 
 let announcementSeq = 0;
@@ -58,7 +77,7 @@ function reducer(state: StreamState, action: Action): StreamState {
       const sessions = previous
         ? state.sessions.map((s) => (s.sessionId === action.session.sessionId ? action.session : s))
         : [...state.sessions, action.session];
-      const text = alertTransition(previous, action.session);
+      const text = announcementFor(previous, action.session);
       return {
         ...state,
         sessions,

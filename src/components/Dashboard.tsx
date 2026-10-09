@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { applyFilters, isFiltering, DEFAULT_FILTERS, serializeFilters } from "@/lib/filters";
 import { useClock } from "@/lib/hooks/useClock";
 import { useSessionStream } from "@/lib/hooks/useSessionStream";
-import { attentionCount, isStale, sortSessions } from "@/lib/sort";
+import { attentionCount, highRiskCount, isStale, sortSessions } from "@/lib/sort";
 import {
   PRIORITY_VALUES,
   STATUS_VALUES,
@@ -82,14 +82,17 @@ export function Dashboard({ initialSnapshot, initialHealth, initialFilters, rece
   const counts = useMemo(() => {
     const statusCounts = Object.fromEntries(STATUS_VALUES.map((s) => [s, 0])) as Record<SessionStatus, number>;
     const priorityCounts = Object.fromEntries(PRIORITY_VALUES.map((p) => [p, 0])) as Record<Priority, number>;
+    const riskCounts = Object.fromEntries(PRIORITY_VALUES.map((p) => [p, 0])) as Record<Priority, number>;
     for (const session of stream.sessions) {
       statusCounts[session.status] += 1;
       priorityCounts[session.priority] += 1;
+      riskCounts[session.taskSeverity] += 1;
     }
-    return { statusCounts, priorityCounts };
+    return { statusCounts, priorityCounts, riskCounts };
   }, [stream.sessions]);
 
   const needing = attentionCount(stream.sessions);
+  const highRisk = highRiskCount(stream.sessions);
   useEffect(() => {
     document.title = needing > 0 ? `(${needing}) Attention Manager` : "Attention Manager";
   }, [needing]);
@@ -110,7 +113,7 @@ export function Dashboard({ initialSnapshot, initialHealth, initialFilters, rece
 
   return (
     <div className="mx-auto flex w-full max-w-[1100px] flex-1 flex-col px-4 pb-4">
-      <HeaderBar connection={stream.connection} attentionCount={needing} onReconnect={stream.reconnect} />
+      <HeaderBar connection={stream.connection} attentionCount={needing} highRiskCount={highRisk} onReconnect={stream.reconnect} />
 
       <div className="flex flex-col gap-2">
         {disconnected && (
@@ -130,7 +133,13 @@ export function Dashboard({ initialSnapshot, initialHealth, initialFilters, rece
       </div>
 
       <div className="mt-3">
-        <FilterToolbar filters={filters} statusCounts={counts.statusCounts} priorityCounts={counts.priorityCounts} onChange={setFilters} />
+        <FilterToolbar
+          filters={filters}
+          statusCounts={counts.statusCounts}
+          priorityCounts={counts.priorityCounts}
+          riskCounts={counts.riskCounts}
+          onChange={setFilters}
+        />
       </div>
 
       <div className={`mt-3 grid gap-4 ${selected ? "min-[900px]:grid-cols-[minmax(0,1fr)_380px]" : ""}`}>

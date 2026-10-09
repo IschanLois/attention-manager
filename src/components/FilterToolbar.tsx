@@ -15,6 +15,7 @@ export interface FilterToolbarProps {
   filters: Filters;
   statusCounts: Record<SessionStatus, number>;
   priorityCounts: Record<Priority, number>;
+  riskCounts: Record<Priority, number>;
   onChange: (filters: Filters) => void;
 }
 
@@ -43,7 +44,7 @@ function Chip({ pressed, label, count, onClick }: { pressed: boolean; label: str
   );
 }
 
-export function FilterToolbar({ filters, statusCounts, priorityCounts, onChange }: FilterToolbarProps) {
+export function FilterToolbar({ filters, statusCounts, priorityCounts, riskCounts, onChange }: FilterToolbarProps) {
   return (
     <div className="flex flex-col gap-2 rounded-md border border-edge bg-card px-3 py-2 text-sm">
       <div role="group" aria-label="Filter by status" className="flex flex-wrap items-center gap-1.5">
@@ -68,6 +69,18 @@ export function FilterToolbar({ filters, statusCounts, priorityCounts, onChange 
               count={priorityCounts[priority]}
               pressed={filters.priorities.includes(priority)}
               onClick={() => onChange({ ...filters, priorities: toggle(filters.priorities, priority) })}
+            />
+          ))}
+        </div>
+        <div role="group" aria-label="Filter by risk" className="flex flex-wrap items-center gap-1.5">
+          <span className="mr-1 text-xs font-medium text-muted">Risk</span>
+          {PRIORITY_VALUES.map((severity) => (
+            <Chip
+              key={severity}
+              label={titleCase(PRIORITY_LABELS[severity])}
+              count={riskCounts[severity]}
+              pressed={filters.risks.includes(severity)}
+              onClick={() => onChange({ ...filters, risks: toggle(filters.risks, severity) })}
             />
           ))}
         </div>

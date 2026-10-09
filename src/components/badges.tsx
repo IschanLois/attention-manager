@@ -1,6 +1,6 @@
 import { absoluteTime, relativeTime, relativeTimeAgo, sourceLabel } from "@/lib/format";
 import { PRIORITY_LABELS, STATUS_LABELS, type ClassificationSource, type Priority, type SessionStatus } from "@/lib/types";
-import { CheckIcon, CircleInfoIcon, CircleQuestionIcon, OctagonIcon, SparkleIcon, TriangleIcon } from "./icons";
+import { CheckIcon, CircleInfoIcon, CircleQuestionIcon, OctagonIcon, ShieldIcon, SparkleIcon, TriangleIcon } from "./icons";
 
 const PRIORITY_STYLES: Record<Exclude<Priority, "none">, string> = {
   critical: "bg-red-50 text-red-700 border-red-500 dark:bg-red-950 dark:text-red-300",
@@ -25,6 +25,19 @@ export function PriorityBadge({ priority }: { priority: Priority }) {
     >
       <Icon size={12} />
       {PRIORITY_LABELS[priority]}
+    </span>
+  );
+}
+
+export function RiskBadge({ severity }: { severity: Priority }) {
+  if (severity === "none") return null;
+  return (
+    <span
+      className={`inline-flex items-center gap-1 rounded border px-1.5 py-0.5 text-[11px] font-semibold tracking-wide ${PRIORITY_STYLES[severity]}`}
+      title="How consequential the work the agent is doing is, independent of whether it is blocked"
+    >
+      <ShieldIcon size={12} />
+      Risk: {PRIORITY_LABELS[severity]}
     </span>
   );
 }

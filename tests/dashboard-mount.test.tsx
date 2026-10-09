@@ -42,6 +42,16 @@ const snapshot: SessionsSnapshot = {
       recentFailureTimes: [],
       pendingPermissionToolUseId: "toolu_1",
       eventSeq: 3,
+      taskSummary: "Drop the legacy_users table and run the migration",
+      recentActions: ["Bash: psql -c 'DROP TABLE legacy_users'", "Write: src/db/migrate.ts"],
+      lastNarration: "I will drop the table now.",
+      taskRuleSeverity: "critical",
+      taskSeverity: "critical",
+      taskSeveritySource: "rule",
+      taskSeverityReason: "Destructive DDL against a database table",
+      taskSeverityEvidence: ["DROP TABLE"],
+      taskSeverityConfidence: null,
+      taskClassifiedAt: NOW,
       stale: false,
     },
   ],
@@ -94,6 +104,10 @@ describe("Dashboard mount", () => {
     expect(container.textContent).toContain("demo-app");
     expect(container.textContent).toContain("Needs attention");
     expect(container.textContent).toContain("Waiting for permission to run Bash");
+    expect(container.textContent).toContain("Risk: CRITICAL");
+    expect(container.textContent).toContain("Task: Drop the legacy_users table and run the migration");
+    expect(container.textContent).toContain("1 high-risk");
+    expect(container.querySelector('[role="group"][aria-label="Filter by risk"]')).not.toBeNull();
     expect(FakeEventSource.instances.length).toBeGreaterThan(0);
     expect(FakeEventSource.instances[0]!.url).toBe("/api/stream");
   });

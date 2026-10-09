@@ -2,8 +2,8 @@
 
 import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 import { absoluteTime, humaniseEventType, sessionLabel } from "@/lib/format";
-import type { SessionDetail as SessionDetailPayload, SessionView, StoredEvent } from "@/lib/types";
-import { PriorityBadge, RelativeTime, SourceBadge, StatusPill } from "./badges";
+import { PRIORITY_LABELS, type SessionDetail as SessionDetailPayload, type SessionView, type StoredEvent } from "@/lib/types";
+import { PriorityBadge, RelativeTime, RiskBadge, SourceBadge, StatusPill } from "./badges";
 import { CopyIcon, XIcon } from "./icons";
 
 type LoadState = { kind: "loading" } | { kind: "ready"; events: StoredEvent[] } | { kind: "error"; message: string };
@@ -81,7 +81,7 @@ export function SessionDetail({
         setLoad({ kind: "error", message: err instanceof Error ? err.message : "Failed to load" });
       });
     return () => controller.abort();
-  }, [session.sessionId, session.lastSeenAt, session.classifiedAt]);
+  }, [session.sessionId, session.lastSeenAt, session.classifiedAt, session.taskClassifiedAt]);
 
   const onKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
     const pressed = e.key;
@@ -108,6 +108,10 @@ export function SessionDetail({
     session.classificationSource === "fallback" && !session.attentionReason
       ? "Contextual classification unavailable; showing rule-based state."
       : (session.attentionReason ?? "No attention reason recorded.");
+  const riskReason =
+    session.taskSeveritySource === "fallback" && !session.taskSeverityReason
+      ? "Contextual risk classification unavailable; showing keyword-derived severity."
+      : (session.taskSeverityReason ?? "No risk reason recorded.");
 
   return (
     <div
@@ -172,6 +176,57 @@ export function SessionDetail({
             <span className="text-amber-700 dark:text-amber-300">{session.classificationError}</span>
           </Row>
         )}
+        <Row term="Task">
+          {session.taskSummary ? (
+            <span className="whitespace-pre-wrap">{session.taskSummary}</span>
+          ) : (
+            <span className="text-muted">No prompt captured yet.</span>
+          )}
+        </Row>
+        <Row term="Risk">
+          <span className="flex flex-wrap items-center gap-1.5">
+            {session.taskSeverity === "none" ? <span className="text-muted">No notable risk</span> : <RiskBadge severity={session.taskSeverity} />}
+            <SourceBadge source={session.taskSeveritySource} confidence={session.taskSeverityConfidence} />
+          </span>
+          <span className={`mt-1 block ${session.taskSeveritySource === "ai" ? "italic" : ""}`}>{riskReason}</span>
+          {session.taskSeverityEvidence.length > 0 && (
+            <ul className="mt-1 list-disc pl-5 text-sm">
+              {session.taskSeverityEvidence.map((item, index) => (
+                <li key={index}>{item}</li>
+              ))}
+            </ul>
+          )}
+          <span className="mt-1 block text-xs text-muted">
+            Keyword floor: {PRIORITY_LABELS[session.taskRuleSeverity].toLowerCase()}
+            {session.taskSeverityConfidence !== null && ` · confidence ${Math.round(session.taskSeverityConfidence * 100)}% (uncalibrated)`}
+            {session.taskClassifiedAt && (
+              <>
+                {" · classified "}
+                <RelativeTime iso={session.taskClassifiedAt} nowMs={nowMs} ago />
+              </>
+            )}
+          </span>
+        </Row>
+        <Row term="Recent actions">
+          {session.recentActions.length > 0 ? (
+            <ol className="flex flex-col gap-0.5 font-mono text-xs">
+              {session.recentActions.map((action, index) => (
+                <li key={index} className="break-all">
+                  {action}
+                </li>
+              ))}
+            </ol>
+          ) : (
+            <span className="text-muted">No tool actions recorded.</span>
+          )}
+        </Row>
+        <Row term="Agent's last message">
+          {session.lastNarration ? (
+            <span className="whitespace-pre-wrap">{session.lastNarration}</span>
+          ) : (
+            <span className="text-muted">No assistant message captured yet.</span>
+          )}
+        </Row>
         <Row term="Last seen">
           <RelativeTime iso={session.lastSeenAt} nowMs={nowMs} ago />
           <span className="ml-2 text-xs text-muted">{absoluteTime(session.lastSeenAt)}</span>

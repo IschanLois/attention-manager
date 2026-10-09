@@ -3,7 +3,7 @@
 import { useEffect, useRef, type KeyboardEvent } from "react";
 import { humaniseEventType, relativeTimeAgo, sessionLabel, shortId } from "@/lib/format";
 import type { SessionView } from "@/lib/types";
-import { PriorityBadge, RelativeTime, SourceBadge, StatusPill } from "./badges";
+import { PriorityBadge, RelativeTime, RiskBadge, SourceBadge, StatusPill } from "./badges";
 import { ClockIcon } from "./icons";
 
 export interface SessionCardProps {
@@ -62,6 +62,7 @@ export function SessionCard({
   useTransientClass(node, "am-flash", updatedAt, 600);
   useTransientClass(node, "am-attention-pulse", session.status === "needs_attention", 1_500);
   const dominant = !compact && (session.priority === "critical" || session.priority === "high");
+  const showRisk = !compact && session.taskSeverity !== "none";
   const label = sessionLabel(session.label, session.sessionId);
   const reason =
     session.classificationSource === "fallback" && !session.attentionReason
@@ -96,11 +97,23 @@ export function SessionCard({
       <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
         <span className={dominant ? "text-base font-semibold" : "text-sm font-medium"}>{label}</span>
         <span className="font-mono text-xs text-muted">…{shortId(session.sessionId)}</span>
-        <span className="ml-auto flex items-center gap-1.5">
+        <span className="ml-auto flex flex-wrap items-center gap-1.5">
           <StatusPill status={session.status} muted={isStale} />
           {!compact && <PriorityBadge priority={session.priority} />}
+          {showRisk && (
+            <span className="inline-flex items-center gap-1">
+              <RiskBadge severity={session.taskSeverity} />
+              <SourceBadge source={session.taskSeveritySource} confidence={session.taskSeverityConfidence} />
+            </span>
+          )}
         </span>
       </div>
+
+      {!compact && session.taskSummary && (
+        <p className="mt-1 truncate text-sm text-muted" title={session.taskSummary}>
+          <span className="font-medium text-foreground">Task:</span> {session.taskSummary}
+        </p>
+      )}
 
       {!compact && reason && (
         <p className={`mt-1 flex items-start gap-2 text-sm ${dominant ? "" : "text-muted"}`}>
