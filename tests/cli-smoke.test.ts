@@ -1,5 +1,5 @@
 import { spawn, spawnSync } from "node:child_process";
-import { existsSync, mkdtempSync } from "node:fs";
+import { existsSync, mkdtempSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -32,6 +32,11 @@ describe.runIf(existsSync(BIN))("built binary", () => {
 
   afterAll(() => {
     receiver.kill("SIGTERM");
+  });
+
+  it("builds the bin and hook entries as executables", () => {
+    expect(statSync(BIN).mode & 0o111).toBe(0o111);
+    expect(statSync(HOOK).mode & 0o111).toBe(0o111);
   });
 
   it("prints its version and usage without warnings", () => {
