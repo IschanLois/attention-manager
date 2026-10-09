@@ -1,7 +1,7 @@
 import { Box, Text } from "ink";
 import type { ReactNode } from "react";
 import { attentionCount, highRiskCount } from "../model/sort.ts";
-import { humaniseEventType, relativeTime, sessionLabel, shortId, sourceLabel } from "../model/format.ts";
+import { humaniseEventType, relativeTime, sessionLabel, sourceLabel } from "../model/format.ts";
 import { PRIORITY_LABELS, RISK_LABELS, STATUS_LABELS, type HealthReport, type Priority, type SessionView, type StoredEvent } from "../model/types.ts";
 import type { TerminalInfo } from "../../core/terminal.ts";
 import type { TuiState } from "./state.ts";
@@ -115,8 +115,8 @@ function riskBadge(session: SessionView, theme: Theme): string {
 const TERMINAL_COLUMN_MIN_WIDTH = 100;
 const PRIORITY_WIDTH = 9;
 const STATUS_WIDTH = 15;
-const SEEN_WIDTH = 7;
-const TERMINAL_WIDTH = 14;
+const SEEN_WIDTH = 9;
+const TERMINAL_WIDTH = 12;
 
 const REASON_MIN_WIDTH = 30;
 
@@ -171,8 +171,8 @@ function rowLines(session: SessionView, selected: boolean, now: number, theme: T
   ];
   if (layout.terminal) segments.push({ text: `${pad(terminalShort(session.terminal), TERMINAL_WIDTH)} `, color: theme.color("blue"), keep: true });
   if (risk) segments.push({ text: `${risk} `, color: theme.priorityColor(session.taskSeverity), keep: true });
-  if (ai) segments.push({ text: `${ai} `, color: theme.color("magenta"), keep: true });
-  segments.push({ text: reason, color: theme.color("gray") });
+  if (ai) segments.push({ text: `${ai} `, color: theme.color("white"), keep: true });
+  segments.push({ text: reason, color: theme.color("white") });
   return wrapSegments(segments, width, { indent: layout.indent });
 }
 
@@ -227,21 +227,6 @@ export function Divider({ theme, width }: { theme: Theme; width: number }) {
   return <Text color={theme.color("gray")}>{(theme.unicode ? "─" : "-").repeat(Math.max(0, width))}</Text>;
 }
 
-function terminalSummary(terminal: TerminalInfo | null): string {
-  if (!terminal) return "unknown (no hook event with terminal info yet)";
-  const parts: string[] = [];
-  if (terminal.tmux) parts.push(`tmux ${terminal.tmux.pane}`);
-  if (terminal.screen) parts.push(`screen ${terminal.screen.sty}${terminal.screen.window ? `:${terminal.screen.window}` : ""}`);
-  if (terminal.kitty) parts.push(`kitty window ${terminal.kitty.windowId}`);
-  if (terminal.wezterm) parts.push(`WezTerm pane ${terminal.wezterm.pane}`);
-  if (terminal.iterm) parts.push("iTerm2");
-  if (terminal.appleTerminal) parts.push("Terminal.app");
-  if (!parts.length && terminal.termProgram) parts.push(terminal.termProgram);
-  if (terminal.tty) parts.push(terminal.tty);
-  if (terminal.pid) parts.push(`pid ${terminal.pid}`);
-  return parts.join(", ") || "unknown";
-}
-
 // Wrapped text continues under its first character instead of under the marker.
 function Hanging({ marker, markerColor, color, children }: { marker: string; markerColor?: ColorName; color?: ColorName; children: ReactNode }) {
   return (
@@ -276,38 +261,29 @@ export function Detail({ session, events, now, theme, width, height }: { session
     );
   }
   const riskEvidence = session.taskSeverityEvidence.slice(0, 3);
-  const eventRows = Math.max(0, height - 16);
+  const eventRows = Math.max(0, height - 14);
   return (
     <Box flexDirection="column" width={width} height={height} overflow="hidden">
       <Box flexDirection="column" flexShrink={0}>
-        <Text bold wrap="wrap">
-          {sessionLabel(session.label, session.sessionId)} <Text color={theme.color("gray")}>({shortId(session.sessionId)})</Text>{" "}
-          <Text color={theme.statusColor(session.status)}>{STATUS_LABELS[session.status]}</Text>{" "}
-          <Text color={theme.priorityColor(session.priority)}>{PRIORITY_LABELS[session.priority]}</Text>
-          {session.stale ? <Text color={theme.color("gray")}> stale</Text> : null}
-        </Text>
-        <Text wrap="wrap" color={theme.color("gray")}>
-          seen {relativeTime(session.lastSeenAt, now)} ago {theme.glyphs.sep} terminal: {terminalSummary(session.terminal)}
-        </Text>
         <Section title="Reason" theme={theme}>
           <Text wrap="wrap">
-            {session.attentionReason ?? "Nothing needs you right now."} <Text color={theme.color("gray")}>[{sourceLabel(session.classificationSource, session.classificationConfidence)}]</Text>
+            {session.attentionReason ?? "Nothing needs you right now."} <Text color={theme.color("white")}>[{sourceLabel(session.classificationSource, session.classificationConfidence)}]</Text>
           </Text>
           {session.classificationEvidence.slice(0, 3).map((line, i) => (
-            <Hanging key={i} marker={`${theme.glyphs.arrow} `} color={theme.color("gray")}>
+            <Hanging key={i} marker={`${theme.glyphs.arrow} `} color={theme.color("white")}>
               {line}
             </Hanging>
           ))}
         </Section>
         <Section title="Task" theme={theme}>
           <Text wrap="wrap">{session.taskSummary ?? "No task captured yet."}</Text>
-          <Text wrap="wrap" color={theme.priorityColor(session.taskSeverity)}>
-            {RISK_LABELS[session.taskSeverity]}
-            {session.taskSeverityReason ? `: ${session.taskSeverityReason}` : ""}
-            {session.taskSeverity !== "none" ? <Text color={theme.color("gray")}> [{sourceLabel(session.taskSeveritySource, session.taskSeverityConfidence)}]</Text> : null}
+          <Text wrap="wrap">
+            <Text color={session.taskSeverity === "low" || session.taskSeverity === "none" ? theme.color("white") : theme.priorityColor(session.taskSeverity)}>{RISK_LABELS[session.taskSeverity]}</Text>
+            {session.taskSeverityReason ? <Text color={theme.color("white")}>{`: ${session.taskSeverityReason}`}</Text> : null}
+            {session.taskSeverity !== "none" ? <Text color={theme.color("white")}> [{sourceLabel(session.taskSeveritySource, session.taskSeverityConfidence)}]</Text> : null}
           </Text>
           {riskEvidence.map((line, i) => (
-            <Hanging key={i} marker={`${theme.glyphs.arrow} `} color={theme.color("gray")}>
+            <Hanging key={i} marker={`${theme.glyphs.arrow} `} color={theme.color("white")}>
               {line}
             </Hanging>
           ))}
@@ -324,7 +300,7 @@ export function Detail({ session, events, now, theme, width, height }: { session
         {events && events.length && eventRows > 0 ? (
           <Section title="Recent events" theme={theme}>
             {events.slice(0, eventRows).map((event) => (
-              <Hanging key={event.id} marker={pad(relativeTime(event.receivedAt, now), 7)} markerColor={theme.color("gray")}>
+              <Hanging key={event.id} marker={pad(relativeTime(event.receivedAt, now), SEEN_WIDTH)} markerColor={theme.color("gray")}>
                 {event.summary ?? humaniseEventType(event.eventType)}
               </Hanging>
             ))}
