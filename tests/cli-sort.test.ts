@@ -45,7 +45,7 @@ function session(id: string, overrides: Partial<SessionView> = {}): SessionView 
 }
 
 describe("sortSessions (attention)", () => {
-  it("orders active before ended, then by priority, then task severity, stale after fresh, then recency, then id", () => {
+  it("orders active before ended, then by task severity, then priority, stale after fresh, then recency, then id", () => {
     const input = [
       session("ended-high", { status: "ended", priority: "high", endedAt: at(2), lastSeenAt: at(0) }),
       session("low-fresh", { priority: "low" }),
@@ -60,27 +60,45 @@ describe("sortSessions (attention)", () => {
     ];
     const sorted = sortSessions(input, { nowMs: NOW, staleAfterMs: STALE_AFTER, mode: "attention" });
     expect(sorted.map((s) => s.sessionId)).toEqual([
-      "critical",
       "high-risky-stale",
+      "none-risky-old",
+      "critical",
       "high-fresh-new",
       "high-fresh-old",
       "high-stale",
       "low-fresh",
-      "none-risky-old",
       "none-a",
       "none-b",
       "ended-high",
     ]);
   });
 
-  it("ranks task severity below attention priority but above freshness", () => {
+  it("ranks task severity above attention priority, with priority breaking ties", () => {
     const input = [
-      session("low-attention-no-risk", { priority: "low", taskSeverity: "none" }),
-      session("no-attention-critical-risk", { priority: "none", taskSeverity: "critical" }),
+      session("high-attention-no-risk", { status: "needs_attention", priority: "high", taskSeverity: "none" }),
       session("no-attention-high-risk", { priority: "none", taskSeverity: "high" }),
+      session("no-attention-critical-risk", { priority: "none", taskSeverity: "critical" }),
+      session("high-attention-high-risk", { status: "needs_attention", priority: "high", taskSeverity: "high" }),
     ];
     const sorted = sortSessions(input, { nowMs: NOW, staleAfterMs: STALE_AFTER, mode: "attention" });
-    expect(sorted.map((s) => s.sessionId)).toEqual(["low-attention-no-risk", "no-attention-critical-risk", "no-attention-high-risk"]);
+    expect(sorted.map((s) => s.sessionId)).toEqual([
+      "no-attention-critical-risk",
+      "high-attention-high-risk",
+      "no-attention-high-risk",
+      "high-attention-no-risk",
+    ]);
+  });
+
+  it("places completed and idle sessions below every active session but above ended ones", () => {
+    const input = [
+      session("ended-critical", { status: "ended", endedAt: at(1), taskSeverity: "critical" }),
+      session("completed-critical", { status: "completed", priority: "medium", taskSeverity: "critical" }),
+      session("idle-high", { status: "idle", priority: "low", taskSeverity: "high" }),
+      session("working-no-risk", { status: "working", taskSeverity: "none" }),
+      session("waiting-low", { status: "needs_attention", priority: "high", taskSeverity: "low" }),
+    ];
+    const sorted = sortSessions(input, { nowMs: NOW, staleAfterMs: STALE_AFTER, mode: "attention" });
+    expect(sorted.map((s) => s.sessionId)).toEqual(["waiting-low", "working-no-risk", "completed-critical", "idle-high", "ended-critical"]);
   });
 
   it("does not mutate the input", () => {

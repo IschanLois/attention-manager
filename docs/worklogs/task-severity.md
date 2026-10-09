@@ -17,7 +17,7 @@ The attention manager ranked sessions only by attention state (permission prompt
 - **Deterministic risk rules** (`src/core/sessions/risk.ts`) match keywords in prompts, commands and narration: DDL, `rm -rf`, force push, hard reset, production deploys and `DELETE FROM` are critical; migrations, auth/secrets/billing code, `sudo`, piping curl into a shell and publishing are high; dependency changes, branch switches and broad refactors are medium.
 - **Task severity** (`taskSeverity`) starts from the keyword floor (`taskRuleSeverity`) and the local model may raise it, never lower it. A new prompt resets the task context. The model is asked once per prompt and once per finished turn, coalesced per session.
 - **Attention escalation**: a permission request whose command or task is critical-risk is shown as attention priority critical instead of high.
-- **Ranking**: active before ended, attention priority, then task severity, then fresh before stale, then recency.
+- **Ranking**: active, then done (`completed` or `idle`), then ended; within each group task severity, then attention priority, then fresh before stale, then recency. See "Risk-first ranking" below.
 - **Privacy change**: the hook script now forwards `tool_input.command`, `tool_input.file_path`, `tool_input.description`, the prompt (first 400 chars) and the last assistant message (first 600 chars) instead of dropping them. `CAPTURE_TASK_CONTEXT=0` turns the capture off at the receiver, in which case severity stays at `none`.
 
 ## Model evaluation (12 task fixtures, `scripts/eval-classifier.ts --task`)
@@ -52,3 +52,30 @@ Decision: keep `qwen3:1.7b` (latency) and bound its influence. Every dangerous f
 ### Manual
 
 - Start two sessions, one editing a README and one asked to write a DDL migration; the DDL session shows a red "Risk: critical" badge and sorts first among working sessions; when it asks permission to run `psql`, its attention priority becomes critical.
+
+## Risk-first ranking
+
+**Branch:** `feat/risk-first-sort` (from `main`)
+**Date:** 2026-10-10
+
+### Purpose
+
+Attention priority mostly reflects whether a session is waiting for input (permission prompt high, idle prompt medium). As the first sort key, it let a session waiting on a harmless permission prompt outrank one doing critical work. The user asked for the LLM risk assessment to drive the order, with sessions that are done thinking kept at the bottom.
+
+### Decisions
+
+- Sessions are grouped into phases. Active comes first: `starting`, `working`, `needs_attention` and `error`. Done comes next: `completed` (turn complete) and `idle` (interrupted). Ended sessions come last. The agent is no longer working in a done session, so it goes below every active one, whatever its risk.
+- Within a phase, `taskSeverity` is the primary key. Attention `priority` only breaks ties between sessions of equal risk. Freshness, recency and id follow, as before.
+- The client copy (`src/cli/model/sort.ts`) and the server copy (`src/core/sessions/state-machine.ts`) are changed identically. The `recent` and `label` modes still use this order as their tie-break.
+- The counters (`attentionCount`, `highRiskCount`) are unchanged.
+
+### Changes
+
+- `src/cli/model/sort.ts`: added `phaseRank`, and severity now comes before priority in `compareAttention`.
+- `src/core/sessions/state-machine.ts`: the same change in `sortSessions`.
+- `tests/cli-sort.test.ts` and `tests/state-machine.test.ts`: the expected orders changed. The new cases cover severity outranking priority, priority breaking ties, and completed or idle sessions sitting below active ones and above ended ones.
+
+### Test plan
+
+- **Automated:** `npm test`, which runs the sort tests for both copies.
+- **Manual:** run the demo. A risky session such as risky-cleanup sits above a session waiting on a low-risk permission prompt. When a session's turn completes, it drops below every active session and stays above ended ones.

@@ -15,13 +15,18 @@ export function isStale(session: Pick<SessionView, "status" | "lastSeenAt">, now
   return nowMs - seen > staleAfterMs;
 }
 
+function phaseRank(status: SessionView["status"]): number {
+  if (status === "ended") return 2;
+  return status === "completed" || status === "idle" ? 1 : 0;
+}
+
 function compareAttention(a: SessionView, b: SessionView, nowMs: number, staleAfterMs: number): number {
-  const endedDiff = Number(a.status === "ended") - Number(b.status === "ended");
-  if (endedDiff !== 0) return endedDiff;
-  const priorityDiff = PRIORITY_RANK[a.priority] - PRIORITY_RANK[b.priority];
-  if (priorityDiff !== 0) return priorityDiff;
+  const phaseDiff = phaseRank(a.status) - phaseRank(b.status);
+  if (phaseDiff !== 0) return phaseDiff;
   const severityDiff = PRIORITY_RANK[a.taskSeverity] - PRIORITY_RANK[b.taskSeverity];
   if (severityDiff !== 0) return severityDiff;
+  const priorityDiff = PRIORITY_RANK[a.priority] - PRIORITY_RANK[b.priority];
+  if (priorityDiff !== 0) return priorityDiff;
   const staleDiff = Number(isStale(a, nowMs, staleAfterMs)) - Number(isStale(b, nowMs, staleAfterMs));
   if (staleDiff !== 0) return staleDiff;
   const recency = Date.parse(b.lastSeenAt) - Date.parse(a.lastSeenAt);
