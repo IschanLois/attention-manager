@@ -2,7 +2,7 @@
 
 A local-first dashboard that watches several Claude Code terminal sessions at once and tells you which one needs you: a permission prompt, a question, a repeated failure, or a finished turn. Session state is derived deterministically from Claude Code hook events; a small local model (via Ollama) only interprets the ambiguous ones. Nothing leaves your machine.
 
-See `PRD.md` for the full requirements and `docs/worklogs/attention-manager.md` for implementation notes, verified hook payloads, and decisions.
+Documentation: [how it works](docs/how-it-works.md) (concepts and user-level behaviour), [technical implementation](docs/technical-implementation.md) (architecture, contracts, security model, tests), `PRD.md` (requirements), and `docs/worklogs/` (decisions, verified hook payloads, evaluation results).
 
 ## How it works
 
