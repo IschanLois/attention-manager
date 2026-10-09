@@ -110,9 +110,40 @@ Agent C's threat model confirmed the receiver controls (loopback bind, Host and 
 
 Accepted residual risks: a same-uid process can read the token and forge events; the model can still word a misleading reason within the deterministic floor; dev-mode CSP allows inline/eval; payload fields still cross the loopback socket before being dropped; SQLite is unencrypted at rest beyond file mode 0600.
 
+### Milestone 3: dashboard (commit 2e6adba)
+
+Built by a delegated agent against Agent B's spec and reviewed by the lead: server-rendered snapshot, SSE hook with backoff and manual reconnect, priority-first ordering recomputed client-side, "Observed" versus "AI · nn%" versus "Unclassified" badges, stale and disconnected treatments, filter chips persisted in the URL, collapsed ended group, detail drawer with bounded event history, diagnostics strip, and degraded banners for an unreachable or missing model, SQLite errors and a lost receiver. Route handlers proxy the receiver so the browser never talks to port 4318. No `dangerouslySetInnerHTML`, no data-driven links. Deviations from the spec: health is polled every 60 s while live (the receiver only pushes health on connect); reduced motion is handled in CSS only.
+
+### Milestone 5: correctness review fixes (commit aaf3dbf)
+
+Independent review found three P1 bugs, all reproduced and fixed with regression tests:
+
+- A finished or failed tool other than the one awaiting permission cleared the pending permission (parallel tool calls made this common).
+- Dedupe keys were constant for every `Stop`, `prompt` and `SubagentStop` of a session, so a later turn end inside the window was dropped and the session stuck in "working". Keys now include the prompt id and a hash of the message; subagent stops and compactions are exempt.
+- The Ollama client cleared its timeout once headers arrived, so a stalled body could hang the single-worker queue forever. The whole exchange now runs under one timeout.
+
+P2 fixes: classification results are matched by a per-session event sequence instead of timestamps; unknown notifications no longer demote a pending permission; `SessionStart(compact)` is a no-op and resume keeps the first start time; MCP tool names longer than 40 characters are no longer redacted (identifiers get a separate sanitizer); oversized text fields are truncated instead of rejecting the event; the pipeline awaits in-flight jobs on close; chunked over-limit bodies get 413; the installer keeps only the first backup, writes atomically and leaves foreign hook groups alone; the hook script drops prompt and tool payload fields with jq before sending.
+
+Accepted deviations: events carry no `occurred_at` because hooks have no timestamps (receiver arrival order is used); `started_at` is null for sessions first seen mid-flight; a turn that ends after escalated failures shows "completed" and the failure context is only visible in the event history.
+
+### Integrated verification (2026-10-09)
+
+- `pnpm test`: 128 tests in 8 files pass. `pnpm typecheck`, `pnpm lint`, `pnpm build` pass.
+- `pnpm dev` (receiver + dashboard) with a real interactive Claude Code session: the permission prompt appeared on the dashboard as "Needs attention / HIGH" with the session label; the proxied SSE stream delivered snapshot and health frames; CSP, Referrer-Policy and X-Frame-Options headers were present.
+- `pnpm doctor` against the running stack passed every check except "hooks", which correctly reports that the user's real `~/.claude/settings.json` has not been touched (hooks were only installed into a scratch project during development).
+
 ### Diagnostics and docs (commit 03aca82)
 
 - `scripts/doctor.ts`, `scripts/dev.mjs`, README with setup, run, troubleshooting and teardown.
+
+## Known limitations and follow-ups
+
+- The receiver trusts any same-uid process that can read the token; a Unix domain socket would replace Host, Origin and token checks with filesystem permissions.
+- The model only refines ambiguous events; small models still misjudge some fixtures (see the evaluation table in the README). Prompt tuning or a larger model is a configuration change.
+- Dev-mode CSP needs `'unsafe-inline' 'unsafe-eval'`; a nonce-based CSP would need middleware.
+- Hook payload fields were verified against Claude Code 2.1.295 only; re-run `tests/fixtures` capture on upgrades.
+- `Notification` hooks do not fire in headless (`-p`) sessions; `PermissionRequest` does, so headless sessions are still covered.
+- No tests exist yet for `scripts/setup-hooks.ts` or the hook shell script beyond manual runs.
 
 ## Test plan
 
