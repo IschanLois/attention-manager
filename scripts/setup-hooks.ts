@@ -34,6 +34,7 @@ type Settings = Record<string, unknown> & { hooks?: Record<string, HookGroup[]> 
 const projectRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const hookScript = join(projectRoot, "scripts", "claude-hook.sh");
 const tokenPath = resolve(projectRoot, process.env.INGEST_TOKEN_PATH ?? "data/ingest-token");
+const headerPath = join(dirname(tokenPath), "ingest-header");
 const settingsPath = process.env.CLAUDE_SETTINGS_PATH ?? join(homedir(), ".claude", "settings.json");
 
 function readSettings(): Settings {
@@ -66,11 +67,12 @@ function writeSettings(settings: Settings): void {
 }
 
 function ensureToken(): string {
-  if (existsSync(tokenPath)) return readFileSync(tokenPath, "utf8").trim();
   mkdirSync(dirname(tokenPath), { recursive: true, mode: 0o700 });
-  const token = randomBytes(24).toString("base64url");
+  const token = existsSync(tokenPath) ? readFileSync(tokenPath, "utf8").trim() : randomBytes(24).toString("base64url");
   writeFileSync(tokenPath, token + "\n", { mode: 0o600 });
   chmodSync(tokenPath, 0o600);
+  writeFileSync(headerPath, `x-attention-token: ${token}\n`, { mode: 0o600 });
+  chmodSync(headerPath, 0o600);
   return token;
 }
 
@@ -85,7 +87,7 @@ function install(): void {
   }
   writeSettings({ ...settings, hooks });
   console.log(`Installed attention-manager hooks for ${HOOK_EVENTS.length} events in ${settingsPath}`);
-  console.log(`Ingest token: ${tokenPath} (mode 0600)`);
+  console.log(`Ingest token: ${tokenPath} and ${headerPath} (mode 0600)`);
   console.log(`Backup of previous settings: ${settingsPath}.attention-backup`);
   console.log("Restart running Claude Code sessions to pick up the hooks.");
 }

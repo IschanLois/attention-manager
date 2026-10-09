@@ -4,7 +4,7 @@ import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const root = resolve(fileURLToPath(import.meta.url), "../..");
-const common = { cwd: root, stdio: "inherit", env: process.env };
+const common = { cwd: root, stdio: "inherit", env: { NEXT_TELEMETRY_DISABLED: "1", ...process.env } };
 
 const receiver = spawn(
   process.execPath,
@@ -13,7 +13,7 @@ const receiver = spawn(
 );
 const dashboard = spawn(
   process.execPath,
-  ["--env-file-if-exists=.env", "node_modules/next/dist/bin/next", "dev"],
+  ["--env-file-if-exists=.env", "node_modules/next/dist/bin/next", "dev", "-H", "127.0.0.1"],
   common,
 );
 

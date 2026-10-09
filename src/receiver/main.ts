@@ -1,15 +1,25 @@
 import { createOllamaClassifier } from "../core/classifier/ollama.ts";
 import { createLogger } from "../core/logger.ts";
-import { loadConfig } from "./config.ts";
+import { isLoopbackUrl, loadConfig } from "./config.ts";
 import { createReceiver } from "./server.ts";
 
 const config = loadConfig();
 const logger = createLogger(config.logLevel);
 
 if (!config.ingestToken) {
-  logger.warn("no ingest token configured; run `pnpm hooks:install` to generate one. Accepting unauthenticated loopback events.", {
-    tokenPath: config.tokenPath,
-  });
+  if (!config.allowNoToken) {
+    logger.error("no ingest token found; run `pnpm hooks:install` to generate one, or set ATTENTION_ALLOW_NO_TOKEN=1 to accept unauthenticated loopback events", {
+      tokenPath: config.tokenPath,
+    });
+    process.exit(2);
+  }
+  logger.warn("ATTENTION_ALLOW_NO_TOKEN=1: accepting unauthenticated loopback events", { tokenPath: config.tokenPath });
+}
+if (config.host !== "127.0.0.1" && config.host !== "localhost" && config.host !== "::1") {
+  logger.warn("receiver is bound to a non-loopback address; other machines may reach it", { host: config.host });
+}
+if (!isLoopbackUrl(config.ollamaUrl)) {
+  logger.warn("OLLAMA_URL is not loopback; event text would leave this machine", { url: config.ollamaUrl });
 }
 
 const classifier = createOllamaClassifier({ url: config.ollamaUrl, model: config.ollamaModel, timeoutMs: config.classifyTimeoutMs });
@@ -24,6 +34,8 @@ const receiver = await createReceiver({
   staleAfterMs: config.staleAfterMs,
   dedupeWindowMs: config.dedupeWindowMs,
   rateLimit: config.rateLimit,
+  maxSessions: config.maxSessions,
+  retentionMs: config.retentionMs,
   classifier,
   logLevel: config.logLevel,
   logger,

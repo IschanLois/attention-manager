@@ -35,12 +35,16 @@ function escapeDelimiters(text: string): string {
   return text.replace(/<\/?event/gi, "&lt;event");
 }
 
+function attr(value: string, max: number): string {
+  return sanitizeText(value, max).replace(/["<>]/g, "");
+}
+
 export function buildMessages(input: ClassifierInput): ChatMessage[] {
   const text = escapeDelimiters(sanitizeText(input.text, CLASSIFIER_TEXT_MAX_LENGTH));
   const attrs = [
     `type="${input.eventType}"`,
-    input.notificationType ? `notification_type="${sanitizeText(input.notificationType, 32)}"` : null,
-    input.toolName ? `tool="${sanitizeText(input.toolName, 64)}"` : null,
+    input.notificationType ? `notification_type="${attr(input.notificationType, 32)}"` : null,
+    input.toolName ? `tool="${attr(input.toolName, 64)}"` : null,
     input.recentFailures > 0 ? `recent_failures="${input.recentFailures}"` : null,
   ]
     .filter(Boolean)

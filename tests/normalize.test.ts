@@ -128,6 +128,10 @@ describe("sanitizeText", () => {
     expect(sanitizeText("\u001b[31mred\u001b[0m\n\n  text\t\u0000here", 100)).toBe("red text here");
   });
 
+  it("removes bidi overrides, zero-width and BOM characters", () => {
+    expect(sanitizeText("Permission\u202eDELETED\u202c needed\u200b now\ufeff", 100)).toBe("PermissionDELETED needed now");
+  });
+
   it("truncates to the given length", () => {
     expect(sanitizeText("a".repeat(50), 10)).toHaveLength(10);
   });

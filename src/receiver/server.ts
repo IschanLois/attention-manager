@@ -20,6 +20,9 @@ export interface ReceiverOptions {
   staleAfterMs: number;
   dedupeWindowMs: number;
   rateLimit: { perSessionPerMinute: number; globalPerMinute: number };
+  maxSessions?: number;
+  retentionMs?: number;
+  maxSseClients?: number;
   classifier: ClassifierPort;
   logLevel: LogLevel;
   logger?: Logger;
@@ -124,7 +127,7 @@ export async function createReceiver(options: ReceiverOptions): Promise<Receiver
     store = openStore({ path: ":memory:", eventHistoryLimit: options.eventHistoryLimit });
   }
 
-  const hub = new SseHub();
+  const hub = new SseHub(15_000, options.maxSseClients ?? 16);
   let lastEventAt: string | null = null;
   let lastClassificationError: HealthReport["lastClassificationError"] = null;
   const sessionLimiter: TokenBucketLimiter = perMinuteLimiter(options.rateLimit.perSessionPerMinute);
@@ -135,13 +138,23 @@ export async function createReceiver(options: ReceiverOptions): Promise<Receiver
     classifier: options.classifier,
     logger,
     dedupeWindowMs: options.dedupeWindowMs,
+    maxSessions: options.maxSessions,
     onSessionChanged: (session: Session) => {
       hub.broadcast("session", toView(session, Date.now(), options.staleAfterMs));
+    },
+    onSessionRemoved: (sessionId) => {
+      hub.broadcast("session_removed", { sessionId });
     },
     onClassificationError: (message) => {
       lastClassificationError = { message, at: new Date().toISOString() };
     },
   });
+
+  const retentionMs = options.retentionMs ?? 7 * 24 * 60 * 60_000;
+  const purged = pipeline.purge(Date.now(), retentionMs);
+  if (purged.sessions || purged.events) logger.info("purged old data", purged);
+  const purgeTimer = setInterval(() => pipeline.purge(Date.now(), retentionMs), 60 * 60_000);
+  purgeTimer.unref();
 
   async function health(): Promise<HealthReport> {
     const model = await options.classifier.health();
@@ -205,7 +218,12 @@ export async function createReceiver(options: ReceiverOptions): Promise<Receiver
     }
     const match = SESSION_ROUTE.exec(url.pathname);
     if (match && method === "GET") {
-      const id = decodeURIComponent(match[1]!);
+      let id: string;
+      try {
+        id = decodeURIComponent(match[1]!);
+      } catch {
+        throw new HttpError(400, "invalid session id");
+      }
       if (!SESSION_ID_PATTERN.test(id)) throw new HttpError(400, "invalid session id");
       const session = pipeline.getSession(id);
       if (!session) throw new HttpError(404, "session not found");
@@ -218,6 +236,7 @@ export async function createReceiver(options: ReceiverOptions): Promise<Receiver
       return sendJson(res, 200, detail);
     }
     if (url.pathname === "/api/stream" && method === "GET") {
+      if (hub.full) throw new HttpError(503, "too many stream clients");
       const now = Date.now();
       hub.add(res, [
         { event: "snapshot", data: toSnapshot(pipeline.listSessions(), now, options.staleAfterMs) },
@@ -255,6 +274,7 @@ export async function createReceiver(options: ReceiverOptions): Promise<Receiver
     port: address.port,
     host: options.host,
     async close() {
+      clearInterval(purgeTimer);
       hub.closeAll();
       await pipeline.close();
       await new Promise<void>((resolve) => server.close(() => resolve()));

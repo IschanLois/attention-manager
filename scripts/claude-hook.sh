@@ -7,6 +7,7 @@ set -u
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 RECEIVER_URL="${ATTENTION_RECEIVER_URL:-http://127.0.0.1:${RECEIVER_PORT:-4318}}"
 TOKEN_FILE="${ATTENTION_TOKEN_FILE:-$SCRIPT_DIR/../data/ingest-token}"
+HEADER_FILE="${ATTENTION_HEADER_FILE:-$SCRIPT_DIR/../data/ingest-header}"
 MAX_TIME="${ATTENTION_HOOK_TIMEOUT:-2}"
 
 TOKEN=""
@@ -14,11 +15,18 @@ if [ -r "$TOKEN_FILE" ]; then
   TOKEN="$(head -c 256 "$TOKEN_FILE" | tr -d '\r\n')"
 fi
 
-if command -v curl >/dev/null 2>&1; then
+# The token travels in a header file (curl -H @file) so it never appears in argv.
+if command -v curl >/dev/null 2>&1 && [ -r "$HEADER_FILE" ]; then
   curl --silent --show-error --output /dev/null \
     --max-time "$MAX_TIME" --connect-timeout 1 \
     --header "content-type: application/json" \
-    --header "x-attention-token: $TOKEN" \
+    --header @"$HEADER_FILE" \
+    --data-binary @- \
+    "$RECEIVER_URL/api/events" >/dev/null 2>&1 || true
+elif command -v curl >/dev/null 2>&1 && [ -z "$TOKEN" ]; then
+  curl --silent --show-error --output /dev/null \
+    --max-time "$MAX_TIME" --connect-timeout 1 \
+    --header "content-type: application/json" \
     --data-binary @- \
     "$RECEIVER_URL/api/events" >/dev/null 2>&1 || true
 else

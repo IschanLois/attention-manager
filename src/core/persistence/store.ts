@@ -1,4 +1,4 @@
-import { mkdirSync } from "node:fs";
+import { chmodSync, mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import type { ClassificationSource, EventType, NormalizedEvent, Priority, Session, SessionStatus, StoredEvent } from "../schemas.ts";
@@ -16,6 +16,8 @@ export interface Store {
   listEvents(sessionId: string, limit?: number): StoredEvent[];
   countEvents(sessionId: string): number;
   hasRecentEvent(dedupeKey: string, nowMs: number, windowMs: number): boolean;
+  deleteSession(sessionId: string): void;
+  purge(nowMs: number, maxAgeMs: number): { sessions: number; events: number };
   close(): void;
 }
 
@@ -124,6 +126,13 @@ export function openStore(options: StoreOptions): Store {
   if (options.path !== ":memory:") mkdirSync(dirname(options.path), { recursive: true });
   const db = new DatabaseSync(options.path);
   db.exec("PRAGMA journal_mode = WAL; PRAGMA synchronous = NORMAL;");
+  if (options.path !== ":memory:") {
+    try {
+      chmodSync(options.path, 0o600);
+    } catch {
+      // best effort: the file may live on a filesystem without POSIX modes
+    }
+  }
   db.exec(SCHEMA);
 
   const upsert = db.prepare(`
@@ -154,6 +163,10 @@ export function openStore(options: StoreOptions): Store {
   const selectEvents = db.prepare("SELECT * FROM session_events WHERE session_id = ? ORDER BY id DESC LIMIT ?");
   const countEvents = db.prepare("SELECT COUNT(*) AS n FROM session_events WHERE session_id = ?");
   const recentByKey = db.prepare("SELECT 1 AS hit FROM session_events WHERE dedupe_key = ? AND received_at >= ? LIMIT 1");
+  const deleteSession = db.prepare("DELETE FROM sessions WHERE session_id = ?");
+  const deleteSessionEvents = db.prepare("DELETE FROM session_events WHERE session_id = ?");
+  const purgeEndedSessions = db.prepare("DELETE FROM sessions WHERE ended_at IS NOT NULL AND ended_at < ?");
+  const purgeOldEvents = db.prepare("DELETE FROM session_events WHERE received_at < ? OR session_id NOT IN (SELECT session_id FROM sessions)");
 
   return {
     upsertSession(s) {
@@ -182,6 +195,16 @@ export function openStore(options: StoreOptions): Store {
     },
     hasRecentEvent(dedupeKey, nowMs, windowMs) {
       return recentByKey.get(dedupeKey, new Date(nowMs - windowMs).toISOString()) !== undefined;
+    },
+    deleteSession(sessionId) {
+      deleteSession.run(sessionId);
+      deleteSessionEvents.run(sessionId);
+    },
+    purge(nowMs, maxAgeMs) {
+      const cutoff = new Date(nowMs - maxAgeMs).toISOString();
+      const sessions = Number(purgeEndedSessions.run(cutoff).changes);
+      const events = Number(purgeOldEvents.run(cutoff).changes);
+      return { sessions, events };
     },
     close() {
       db.close();

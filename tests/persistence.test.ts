@@ -61,6 +61,28 @@ describe("store", () => {
     expect(store.hasRecentEvent(e.dedupeKey, Date.parse(e.receivedAt) + 120_000, 60_000)).toBe(false);
   });
 
+  it("purges ended sessions and events older than the retention window", () => {
+    const ended = { ...reduceSession(null, ev(fx.sessionEnd(fx.SESSION_A))), endedAt: "2026-10-01T00:00:00.000Z" };
+    const live = reduceSession(null, ev(fx.sessionStart(fx.SESSION_B)));
+    store.upsertSession(ended);
+    store.upsertSession(live);
+    store.insertEvent({ ...ev(fx.preToolUse(fx.SESSION_A)), receivedAt: "2026-10-01T00:00:00.000Z" });
+    store.insertEvent(ev(fx.preToolUse(fx.SESSION_B)));
+    const result = store.purge(Date.parse("2026-10-09T00:00:00.000Z"), 7 * 24 * 60 * 60_000);
+    expect(result).toEqual({ sessions: 1, events: 1 });
+    expect(store.getSession(fx.SESSION_A)).toBeNull();
+    expect(store.getSession(fx.SESSION_B)).not.toBeNull();
+    expect(store.countEvents(fx.SESSION_B)).toBe(1);
+  });
+
+  it("deletes a session together with its events", () => {
+    store.upsertSession(reduceSession(null, ev(fx.sessionStart())));
+    store.insertEvent(ev(fx.preToolUse()));
+    store.deleteSession(fx.SESSION_A);
+    expect(store.getSession(fx.SESSION_A)).toBeNull();
+    expect(store.countEvents(fx.SESSION_A)).toBe(0);
+  });
+
   it("recovers sessions after reopening a file-backed database", async () => {
     const { mkdtemp, rm } = await import("node:fs/promises");
     const { join } = await import("node:path");

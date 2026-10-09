@@ -21,7 +21,9 @@ export interface PipelineOptions {
   classifier: ClassifierPort;
   logger: Logger;
   dedupeWindowMs: number;
+  maxSessions?: number;
   onSessionChanged: (session: Session) => void;
+  onSessionRemoved?: (sessionId: string) => void;
   onClassificationError: (message: string) => void;
   now?: () => number;
 }
@@ -69,6 +71,7 @@ export class IngestPipeline {
     }
 
     const previous = this.sessions.get(event.sessionId) ?? null;
+    if (!previous) this.evictForNewSession();
     const next = reduceSession(previous, event);
     this.commit(next);
     this.options.store.insertEvent(event);
@@ -76,6 +79,35 @@ export class IngestPipeline {
     if (shouldClassify(next, event)) this.enqueue(next, event);
     else this.pendingJobs.delete(event.sessionId);
     return { status: "accepted", session: next };
+  }
+
+  purge(nowMs: number, maxAgeMs: number): { sessions: number; events: number } {
+    const result = this.options.store.purge(nowMs, maxAgeMs);
+    const cutoff = nowMs - maxAgeMs;
+    for (const [id, session] of this.sessions) {
+      if (session.endedAt && Date.parse(session.endedAt) < cutoff) {
+        this.sessions.delete(id);
+        this.pendingJobs.delete(id);
+        this.options.onSessionRemoved?.(id);
+      }
+    }
+    return result;
+  }
+
+  private evictForNewSession(): void {
+    const max = this.options.maxSessions ?? 1000;
+    if (this.sessions.size < max) return;
+    const victims = [...this.sessions.values()].sort((a, b) => {
+      const endedDiff = Number(b.status === "ended") - Number(a.status === "ended");
+      if (endedDiff !== 0) return endedDiff;
+      return Date.parse(a.lastSeenAt) - Date.parse(b.lastSeenAt);
+    });
+    for (const victim of victims.slice(0, this.sessions.size - max + 1)) {
+      this.sessions.delete(victim.sessionId);
+      this.pendingJobs.delete(victim.sessionId);
+      this.options.store.deleteSession(victim.sessionId);
+      this.options.onSessionRemoved?.(victim.sessionId);
+    }
   }
 
   async close(): Promise<void> {

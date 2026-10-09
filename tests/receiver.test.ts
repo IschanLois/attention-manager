@@ -111,9 +111,57 @@ describe("receiver", () => {
     expect(JSON.stringify(body)).not.toContain("node hello.js");
   });
 
-  it("returns 404 for unknown sessions and rejects malformed ids", async () => {
+  it("returns 404 for unknown sessions and rejects malformed ids and bad encoding", async () => {
     expect((await fetch(`${base}/api/sessions/${fx.SESSION_A}`)).status).toBe(404);
     expect((await fetch(`${base}/api/sessions/..%2F..%2Fetc`)).status).toBe(400);
+    expect((await fetch(`${base}/api/sessions/%zz`)).status).toBe(400);
+  });
+
+  it("caps the number of SSE clients", async () => {
+    const capped = await createReceiver({
+      host: "127.0.0.1", port: 0, databasePath: ":memory:", ingestToken: TOKEN, maxBodyBytes: 4096,
+      eventHistoryLimit: 20, staleAfterMs: 600_000, dedupeWindowMs: 0, maxSseClients: 2,
+      rateLimit: { perSessionPerMinute: 60, globalPerMinute: 200 }, classifier, logLevel: "error",
+    });
+    const controllers: AbortController[] = [];
+    try {
+      const open = async () => {
+        const c = new AbortController();
+        controllers.push(c);
+        return fetch(`http://127.0.0.1:${capped.port}/api/stream`, { signal: c.signal });
+      };
+      expect((await open()).status).toBe(200);
+      expect((await open()).status).toBe(200);
+      expect((await open()).status).toBe(503);
+    } finally {
+      for (const c of controllers) c.abort();
+      await capped.close();
+    }
+  });
+
+  it("evicts ended and oldest sessions when the session cap is reached", async () => {
+    const small = await createReceiver({
+      host: "127.0.0.1", port: 0, databasePath: ":memory:", ingestToken: TOKEN, maxBodyBytes: 4096,
+      eventHistoryLimit: 20, staleAfterMs: 600_000, dedupeWindowMs: 0, maxSessions: 3,
+      rateLimit: { perSessionPerMinute: 60, globalPerMinute: 1000 }, classifier, logLevel: "error",
+    });
+    try {
+      const url = `http://127.0.0.1:${small.port}`;
+      const send = (body: unknown) => fetch(`${url}/api/events`, {
+        method: "POST", headers: { "content-type": "application/json", "x-attention-token": TOKEN }, body: JSON.stringify(body),
+      });
+      const ids = ["s1-00000000", "s2-00000000", "s3-00000000", "s4-00000000"];
+      await send(fx.sessionStart(ids[0]));
+      await send(fx.sessionStart(ids[1]));
+      await send(fx.sessionEnd(ids[1]));
+      await send(fx.sessionStart(ids[2]));
+      await send(fx.sessionStart(ids[3]));
+      const list = (await (await fetch(`${url}/api/sessions`)).json()).sessions.map((s: { sessionId: string }) => s.sessionId).sort();
+      expect(list).toEqual([ids[0], ids[2], ids[3]].sort());
+      expect((await fetch(`${url}/api/sessions/${ids[1]}`)).status).toBe(404);
+    } finally {
+      await small.close();
+    }
   });
 
   it("ignores unsupported hook events without creating sessions", async () => {

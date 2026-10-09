@@ -30,6 +30,7 @@ const EVENT_TYPE_BY_HOOK: Record<HookEventName, EventType> = {
 
 const ANSI_PATTERN = /\u001b\[[0-9;?]*[ -/]*[@-~]|\u001b\][^\u0007]*\u0007/g;
 const CONTROL_PATTERN = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g;
+const INVISIBLE_PATTERN = /[\u200b-\u200f\u202a-\u202e\u2060-\u2064\u2066-\u2069\ufeff]/g;
 const SECRET_PATTERNS = [
   /\b(?:sk|rk|pk)-[A-Za-z0-9_-]{16,}\b/g,
   /\b(?:ghp|gho|ghu|ghs|ghr|github_pat)_[A-Za-z0-9_]{16,}\b/g,
@@ -41,7 +42,7 @@ const SECRET_PATTERNS = [
 
 export function sanitizeText(input: string | null | undefined, maxLength: number): string {
   if (!input) return "";
-  let text = input.replace(ANSI_PATTERN, "").replace(CONTROL_PATTERN, " ");
+  let text = input.replace(ANSI_PATTERN, "").replace(INVISIBLE_PATTERN, "").replace(CONTROL_PATTERN, " ");
   for (const pattern of SECRET_PATTERNS) text = text.replace(pattern, "[redacted]");
   text = text.replace(/\s+/g, " ").trim();
   return text.length > maxLength ? text.slice(0, maxLength) : text;

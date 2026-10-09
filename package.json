@@ -4,11 +4,11 @@
   "private": true,
   "scripts": {
     "dev": "node scripts/dev.mjs",
-    "dev:dashboard": "node --env-file-if-exists=.env node_modules/next/dist/bin/next dev",
+    "dev:dashboard": "node --env-file-if-exists=.env node_modules/next/dist/bin/next dev -H 127.0.0.1",
     "dev:receiver": "node --env-file-if-exists=.env --no-warnings=ExperimentalWarning --watch src/receiver/main.ts",
     "receiver": "node --env-file-if-exists=.env --no-warnings=ExperimentalWarning src/receiver/main.ts",
     "build": "next build",
-    "start": "node --env-file-if-exists=.env node_modules/next/dist/bin/next start",
+    "start": "node --env-file-if-exists=.env node_modules/next/dist/bin/next start -H 127.0.0.1",
     "hooks:install": "node --no-warnings=ExperimentalWarning scripts/setup-hooks.ts install",
     "hooks:uninstall": "node --no-warnings=ExperimentalWarning scripts/setup-hooks.ts uninstall",
     "doctor": "node --env-file-if-exists=.env --no-warnings=ExperimentalWarning scripts/doctor.ts",

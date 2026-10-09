@@ -5,9 +5,15 @@ export class SseHub {
   private heartbeat: NodeJS.Timeout | null = null;
 
   private readonly heartbeatMs: number;
+  readonly maxClients: number;
 
-  constructor(heartbeatMs = 15_000) {
+  constructor(heartbeatMs = 15_000, maxClients = 16) {
     this.heartbeatMs = heartbeatMs;
+    this.maxClients = maxClients;
+  }
+
+  get full(): boolean {
+    return this.clients.size >= this.maxClients;
   }
 
   get size(): number {
