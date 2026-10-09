@@ -13,10 +13,6 @@
 # testing
 /coverage
 
-# next.js
-/.next/
-/out/
-
 # production
 /build
 
@@ -40,15 +36,17 @@ yarn-error.log*
 
 # typescript
 *.tsbuildinfo
-next-env.d.ts
 
 # other dependency / build outputs
 vendor/
 __pycache__/
 dist/
 
-# local data (SQLite database, ingest token)
+# local data from older source checkouts (SQLite database, ingest token)
 data/
+
+# npm pack output
+*.tgz
 
 # claude local files
 .claude/settings.local.json

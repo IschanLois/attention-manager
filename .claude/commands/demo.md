@@ -1,8 +1,9 @@
-Prepare and run the end-to-end demo of the attention manager:
+Prepare and run the end-to-end demo of the attention CLI:
 
-1. Check `pnpm doctor`; if hooks are not installed, run `pnpm hooks:install` and tell the user to restart any open Claude Code sessions.
-2. Start `pnpm dev` in the background and confirm http://127.0.0.1:4318/api/health and http://localhost:3000 respond.
-3. Explain to the user how to trigger an observable interruption: in a separate terminal start `claude --permission-mode default` and ask it to run a command that needs approval (for example `touch demo.txt`). The session card should switch to "Needs attention / High" within a second.
-4. Show how to stop everything: Ctrl+C on `pnpm dev`, and `pnpm hooks:uninstall` for teardown.
+1. Build and link the CLI: `pnpm build`, then either `npm i -g .` or use `node dist/cli/main.js` in place of `attention` below.
+2. Run `attention doctor`. If hooks are missing or stale, run `attention setup` (or `attention hooks install`) and tell the user to restart any open Claude Code sessions.
+3. Ask the user to run `attention` in a terminal of their own (it is a full-screen TUI; do not try to drive it from this session). It starts the receiver itself.
+4. Explain how to trigger an observable interruption: in a separate terminal or tmux pane start `claude --permission-mode default` and ask it to run a command that needs approval (for example `touch demo.txt`). The row should switch to "Needs attention / HIGH" within a second, flash and ring the bell; Enter focuses that pane.
+5. Show how to stop everything: `q` in the TUI (the receiver it started exits a few seconds later), and `attention hooks uninstall` for teardown.
 
 Never approve permissions on the user's behalf and never modify ~/.claude/settings.json without saying so first.

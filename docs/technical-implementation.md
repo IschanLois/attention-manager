@@ -6,20 +6,23 @@ Engineering reference for the Claude Code Attention Manager. For the conceptual 
 
 | Concern | Choice | Notes |
 | --- | --- | --- |
-| Language | TypeScript 5.9, strict, `erasableSyntaxOnly` | Core and receiver run directly under Node 24 with type stripping; no build step, no parameter properties or enums |
+| Language | TypeScript 5.9, strict, `erasableSyntaxOnly` | Runs from source under Node 24 type stripping in the repo; `tsc -p tsconfig.build.json` emits plain JS to `dist/` for the npm package, because type stripping does not run inside `node_modules` |
+| Distribution | npm package `attention-manager`, bin `attention` | `files` ships `dist/`, `README.md`, `LICENSE`; `engines.node >=24`; names come from `package.json` only (`src/cli/meta.ts`) |
 | Receiver | Plain `node:http` | No framework; one process, loopback only |
-| Persistence | `node:sqlite` (`DatabaseSync`) | Built into Node 24; no native build. Still flagged experimental by Node, warning silenced in scripts |
-| Validation | zod 4 | Hook payloads and model output |
-| Dashboard | Next.js 16 App Router, React 19, Tailwind 4 | Cache Components disabled; every route dynamic; no UI dependencies |
+| Persistence | `node:sqlite` (`DatabaseSync`) | Built into Node 24; no native build. Its ExperimentalWarning is filtered inside the bin entry |
+| Validation | zod 4 | Hook payloads, terminal identity, CLI config, model output |
+| UI | Ink 7 (React 19) terminal UI | Replaced the Next.js dashboard; see section 8 |
+| Prompts | `@clack/prompts` | First-run setup only |
 | Model runtime | Ollama HTTP API | `qwen3:1.7b` default, configurable |
-| Tests | Vitest 5, happy-dom for one DOM mount test | 160 tests |
-| Package manager | pnpm 11 | Single package, no workspace |
+| Tests | Vitest 5, `ink-testing-library` | Unit, receiver integration, render and built-binary smoke tests |
+| Package manager | pnpm 11 for development | Users install with `npm i -g` |
 
 Module layout:
 
 ```
-src/core/            pure domain code, imported by both processes (relative .ts imports)
+src/core/            pure domain code (relative .ts imports)
   schemas.ts         zod schemas, enums, Session/NormalizedEvent types, classifier JSON schema
+  terminal.ts        terminal identity schema and sanitiser (allow-list patterns)
   events/normalize.ts   hook payload -> NormalizedEvent, sanitization, redaction, task context
   sessions/state-machine.ts  reduceSession, classification policy, floors, sorting
   sessions/risk.ts   keyword risk rules
@@ -27,11 +30,20 @@ src/core/            pure domain code, imported by both processes (relative .ts 
   classifier/        contract (prompts, output parsing), ollama client, port types
   persistence/store.ts  SQLite store
   logger.ts
-src/receiver/        HTTP service: server.ts, pipeline.ts, sse.ts, rate-limit.ts, config.ts, main.ts
-src/app/             Next.js pages and proxy route handlers
-src/components/      dashboard components (client)
-src/lib/             dashboard helpers and hooks (sort, filters, format, stream)
-scripts/             hook forwarder, installer, doctor, dev launcher, model evaluation
+src/receiver/        HTTP service: server.ts, pipeline.ts, sse.ts, rate-limit.ts, config.ts
+src/hook/            the hook forwarder (main.ts), terminal collection, payload minimisation
+src/cli/             the `attention` CLI
+  main.ts            bin entry: arg parsing, platform guard, warning filter, dispatch
+  args.ts, help.ts, context.ts, meta.ts, paths.ts, platform.ts, config.ts
+  hooks.ts           settings.json merge, status (stale/partial/legacy), token files
+  lifecycle.ts       receiver probe / attach / spawn
+  client.ts, sse.ts  HTTP and SSE client of the receiver API
+  doctor.ts, setup.ts   checks and the first-run flow (pure, with injected I/O)
+  commands/          list, focus, hooks, receiver, setup, tui
+  focus/             TerminalFocuser adapters and planner
+  model/             framework-free sort, filters, formatting, announcements, labels
+  tui/               reducer (state.ts), key map, theme, Screen/components, App
+scripts/             model evaluation
 tests/               Vitest suites and fixtures captured from real hooks
 ```
 
@@ -39,26 +51,48 @@ tests/               Vitest suites and fixtures captured from real hooks
 
 ### 2.1 Hook configuration
 
-`scripts/setup-hooks.ts install` merges one command hook per event into the settings file (`~/.claude/settings.json` by default, or `CLAUDE_SETTINGS_PATH`). Each entry is:
+`attention hooks install` (also run by `attention setup`) merges one command hook per event into the settings file (`~/.claude/settings.json` by default, or `CLAUDE_SETTINGS_PATH`). Each entry is:
 
 ```json
-{ "hooks": [{ "type": "command", "command": "/abs/path/scripts/claude-hook.sh", "timeout": 5 }] }
+{ "hooks": [{ "type": "command", "command": "\"/abs/node\" \"/abs/node_modules/attention-manager/dist/hook/main.js\"", "timeout": 5 }] }
 ```
 
-Events: `SessionStart`, `UserPromptSubmit`, `PreToolUse`, `PostToolUse`, `PostToolUseFailure`, `PermissionRequest`, `Notification`, `Stop`, `SubagentStop`, `PreCompact`, `SessionEnd`.
+The command is computed at install time from `process.execPath` and the installed package location, so it works without `PATH` lookups and survives a global install. Paths containing `"`, `$`, backticks, backslashes or newlines are refused. Events: `SessionStart`, `UserPromptSubmit`, `PreToolUse`, `PostToolUse`, `PostToolUseFailure`, `PermissionRequest`, `Notification`, `Stop`, `SubagentStop`, `PreCompact`, `SessionEnd`.
 
-Installer guarantees: existing hooks are kept; only groups emptied by removing our own entry are dropped; the first install writes `settings.json.attention-backup` once; writes go to a temp file then `rename`; the ingest token (`data/ingest-token`, 0600) and a curl header file (`data/ingest-header`, 0600, content `x-attention-token: <token>`) are generated or regenerated when empty.
+Installer guarantees: existing hooks are kept; only groups emptied by removing our own entry are dropped; our entries (the packaged `dist/hook/main.js`, a source checkout's `src/hook/main.ts`, or the legacy `scripts/claude-hook.sh`) are replaced, never duplicated; the first install writes `settings.json.attention-backup` once; writes go to a temp file then `rename`; the ingest token (0600) and a header file (0600, `x-attention-token: <token>`) are generated in the config directory when missing.
 
-### 2.2 Forwarder
+`attention hooks status` reports `installed`, `partial`, `absent` or `stale`. Stale means the hooks point to another install (a moved prefix, another Node version, the legacy shell forwarder) or the referenced file no longer exists; re-running `hooks install` after an upgrade fixes it. It exits 2 for anything but `installed`.
 
-`scripts/claude-hook.sh` reads stdin, reduces it with `jq` when available, and posts it:
+### 2.2 Forwarder (`src/hook/main.ts`)
 
-- kept: everything except `tool_response` and `transcript_path`; `tool_input` is replaced by `{command, file_path, description}` (command ≤ 400 chars, description ≤ 200); `prompt` ≤ 400 chars; `last_assistant_message` ≤ 600 chars.
-- `curl --max-time 2 --connect-timeout 1 -H @data/ingest-header --data-binary @-`; the token never appears in argv.
-- Without curl, `scripts/claude-hook-fallback.mjs` does the same with `fetch` and `AbortSignal.timeout`.
-- Always `exit 0`, never prints the payload.
+A dependency-free Node entry (no zod, no sqlite) so it starts fast:
 
-### 2.3 Verified payload facts (Claude Code 2.1.295)
+- reads stdin (capped at 1 MiB) and minimises it like the old `jq` filter: drops `tool_response` and `transcript_path`; `tool_input` becomes `{command ≤ 400, file_path, description ≤ 200}`; `prompt` ≤ 400; `last_assistant_message` ≤ 600.
+- attaches `terminal`, collected from the environment Claude runs in and from the process tree (section 2.3).
+- posts to `ATTENTION_RECEIVER_URL` or `http://127.0.0.1:<RECEIVER_PORT | config receiver.port | 4318>/api/events` with `node:http`, 2 s timeout (`ATTENTION_HOOK_TIMEOUT`), the token read from the 0600 token file (or `ATTENTION_INGEST_TOKEN`); the token never appears in argv.
+- a hard timer exits after timeout + 0.5 s; every path exits 0 and nothing is printed.
+
+### 2.3 Terminal identity
+
+Hook payloads only carry `session_id` and `cwd`, so the forwarder records where the session runs (`src/hook/collect.ts`):
+
+| Field | Source |
+| --- | --- |
+| `termProgram` | `TERM_PROGRAM` |
+| `tmux {socket, pane}` | `TMUX` (socket path before the first comma), `TMUX_PANE` |
+| `screen {sty, window}` | `STY`, `WINDOW` |
+| `kitty {windowId, listenOn}` | `KITTY_WINDOW_ID`, `KITTY_LISTEN_ON` |
+| `wezterm {pane, socket}` | `WEZTERM_PANE`, `WEZTERM_UNIX_SOCKET` |
+| `iterm {sessionId}` | `ITERM_SESSION_ID` |
+| `appleTerminal {sessionId}` | `TERM_SESSION_ID` when `TERM_PROGRAM=Apple_Terminal` |
+| `alacritty {socket, windowId}` | `ALACRITTY_SOCKET`, `ALACRITTY_WINDOW_ID` |
+| `windowId` | `WINDOWID` (X11) |
+| `tty`, `pid`, `ancestors` | the Claude process found by walking the parent chain from the hook (`/proc/<pid>/stat` and `/proc/<pid>/fd/0` on Linux, one `ps -A -o pid=,ppid=,tty=,comm=` on macOS): the first ancestor whose command contains `claude`, else the first with a terminal; `ancestors` are the up to 12 processes above it (the terminal emulator is usually among them) |
+| `cwd`, `display` | payload `cwd`; `x11` / `wayland` / `macos` from `XDG_SESSION_TYPE`, `WAYLAND_DISPLAY`, `DISPLAY` |
+
+The receiver treats all of it as untrusted: `hookEventSchema.terminal` is `unknown`, and `sanitizeTerminal` (`src/core/terminal.ts`) validates every field independently against a strict allow-list pattern (pane `^%\d+$`, ids digits or UUIDs, paths `^/[A-Za-z0-9_./@+-]+$`, tty `/dev/pts/N` or `/dev/ttyX`, pids as positive integers). Anything else, including shell metacharacters and control characters, is dropped field by field; the event itself is never rejected for it. `reduceSession` keeps the latest terminal, so a resumed session that reappears in another pane updates.
+
+### 2.4 Verified payload facts (Claude Code 2.1.295)
 
 Every event carries `session_id` (UUID), `cwd`, `hook_event_name`, usually `prompt_id`. Specifics used by the normalizer:
 
@@ -75,21 +109,21 @@ Every event carries `session_id` (UUID), `cwd`, `hook_event_name`, usually `prom
 
 Hooks carry no timestamps; the receiver stamps `receivedAt` on arrival and processes events in arrival order.
 
-### 2.4 Receiver HTTP surface
+### 2.5 Receiver HTTP surface
 
 | Route | Purpose | Controls |
 | --- | --- | --- |
 | `POST /api/events` | ingest | token (constant-time compare), `Content-Type: application/json`, body ≤ `MAX_BODY_BYTES` (byte-counted, chunked bodies get 413), global and per-session token buckets, dedupe |
 | `GET /api/sessions` | sorted snapshot `{sessions, now, staleAfterMs}` | |
 | `GET /api/sessions/:id` | `{session, events, now}` with bounded history | id regex, 400 on bad encoding, 404 unknown |
-| `GET /api/health` | diagnostics (receiver, sqlite, model, last event, last classification error, session count) | |
+| `GET /api/health` | diagnostics (`app` name, version, receiver incl. SSE client count, sqlite, model, last event, last classification error, session count) | |
 | `GET /api/stream` | SSE: `snapshot`, `health`, `session`, `session_removed`, heartbeat comments | client cap (`maxSseClients`, default 16) |
 
 All routes first require `Host` ∈ {localhost, 127.0.0.1, [::1], bound host} and a loopback `Origin` when present. No CORS headers are ever sent. Responses carry `nosniff` and `no-store`. Server timeouts: headers 5 s, request 10 s.
 
 Responses to ingest: `202 {accepted:true}`, `200 {accepted:false, reason:"unsupported_event"|"duplicate"}`, `400 invalid_payload`, `401`, `403`, `413`, `415`, `429`.
 
-### 2.5 Pipeline (`src/receiver/pipeline.ts`)
+### 2.6 Pipeline (`src/receiver/pipeline.ts`)
 
 ```
 raw JSON ─▶ normalizeHookEvent ─▶ dedupe check ─▶ reduceSession ─▶ store.upsert + insertEvent
@@ -207,57 +241,107 @@ sessions(session_id PK, label, started_at, last_seen_at, last_event_type, status
          pending_permission_tool_use_id, event_seq,
          task_summary, recent_actions JSON, last_narration, task_rule_severity, task_severity,
          task_severity_source, task_severity_reason, task_severity_evidence JSON,
-         task_severity_confidence, task_classified_at)
+         task_severity_confidence, task_classified_at, terminal JSON)
 session_events(id PK, session_id, event_type, received_at, summary, dedupe_key)
 ```
 
 Indexes on `last_seen_at`, `(session_id, id DESC)`, `(dedupe_key, received_at)`. WAL mode. New columns are added with idempotent `ALTER TABLE` migrations. Per-session history is pruned to `EVENT_HISTORY_LIMIT` on every insert. `purge(now, maxAge)` deletes ended sessions and old or orphaned events. The database file is chmod 0600 and its directory is created on demand; if the file cannot be opened the receiver falls back to `:memory:` and reports it in health.
 
-## 8. Dashboard
+## 8. Terminal UI and CLI
 
-### Server side
+### Commands
 
-- `src/app/page.tsx` (server component) fetches the snapshot and health from `RECEIVER_URL` with try/catch and renders `<Dashboard>` with the initial state and the filters parsed from the URL. A failed fetch renders the disconnected state.
-- Route handlers under `src/app/api/*` proxy `/api/sessions`, `/api/sessions/[id]` (id validated first), `/api/health` and `/api/stream` (streamed body, upstream aborted when the client disconnects). The receiver being unreachable yields `503 {"error":"receiver unreachable"}`. The browser never talks to port 4318.
-- `next.config.ts` sets CSP (`default-src 'self'`, inline scripts allowed, eval only in dev, `connect-src 'self'`, `frame-ancestors 'none'`), `Referrer-Policy: no-referrer`, `nosniff`, `X-Frame-Options: DENY`. ESLint forbids `dangerouslySetInnerHTML`.
+| Command | Purpose | Exit codes |
+| --- | --- | --- |
+| `attention` | TUI; runs setup first when no config exists; ensures a receiver | 0, 2 without a TTY or on a port conflict |
+| `attention setup [--yes]` | first-run configuration (see Setup below) | 0, 1 cancelled or failed |
+| `attention doctor [--json]` | checks (config, token, hooks, receiver, database, model, ingestion, terminal focus, focusable sessions) | 0 ok, 1 broken, 2 misconfigured |
+| `attention hooks install\|uninstall\|status` | section 2.1 | status: 0 installed, 2 otherwise |
+| `attention receiver [--port]` | foreground receiver | 2 on `EADDRINUSE`/`EACCES` |
+| `attention list [--json] [--status] [--min-priority] [--min-risk] [--sort] [--all]` | snapshot in attention order; unknown values exit 2 | 1 when the receiver is down |
+| `attention focus <id\|label>` | exact id, exact label, then unique prefix | 0 focused, 1 not found/unfocusable, 2 ambiguous |
 
-### Client side
+`list --json` is versioned: `{version: 1, generatedAt, sessions: [{id, label, status, priority, reason, taskSeverity, taskSeverityReason, taskSummary, lastSeenAt, startedAt, endedAt, stale, focusable, terminal}]}`. Fields are only ever added.
 
-- `useSessionStream`: `EventSource('/api/stream')`, exponential backoff 1 s to 30 s, `offline` after three failures, merges `session` frames by id, drops `session_removed`, polls health every 60 s while live, exposes `reconnect`/`refresh`. Announcement text for aria-live is computed by the pure `announcementFor` (transitions into needs_attention/error and into critical-risk work).
-- `useClock`: one shared `useSyncExternalStore` ticker per cadence with stable subscribe/snapshot functions (an unstable subscribe caused a render loop; covered by a mount test).
-- `src/lib/sort.ts` mirrors the receiver's ordering and recomputes staleness client-side; `src/lib/filters.ts` round-trips status/priority/risk/ended/sort through the URL.
-- Components: `Dashboard` (state container), `HeaderBar`, `DegradedBanner`, `FilterToolbar`, `SessionList` (listbox with arrow-key navigation), `SessionCard`, `SessionDetail` (dialog with focus management), `DiagnosticsStrip`, `EmptyState`, `badges`, `icons`. Everything renders React-escaped text; no data-driven URLs.
+### Receiver lifecycle (`src/cli/lifecycle.ts`)
+
+`attention` probes `GET /api/health`. A response with `app: "attention-manager"` (or the receiver's health shape) is attached to; a refused connection spawns `node dist/cli/main.js receiver --exit-when-idle` detached, with stdout/stderr appended to the receiver log, and polls health for up to 6 s; any other answer on the port is a conflict (exit 2 with the port and how to change it). The spawned receiver exits 3 s after its last SSE client disconnects (20 s grace at startup), so quitting or crashing the last UI never leaves an orphan, a second UI simply attaches, and a receiver started by someone else is never stopped. `--keep-running` spawns without `--exit-when-idle`.
+
+### Terminal focus (`src/cli/focus/`)
+
+`planFocus(terminal, {platform, env, exec})` returns the adapters that apply, most specific first; `focusSession` runs them all and returns `focused` (any step succeeded, failures noted), `failed` (reasons plus a manual hint) or `unsupported` (hint only).
+
+| Adapter | Applies when | Command (argv, never a shell) |
+| --- | --- | --- |
+| tmux | `terminal.tmux` | `tmux -S <socket> select-window -t %N`, `select-pane -t %N`, plus `switch-client -t %N` when the UI runs on the same tmux server |
+| screen | `terminal.screen` with a window | `screen -S <sty> -X select <window>` |
+| kitty | `terminal.kitty` | `kitten @ [--to <listenOn>] focus-window --match id:N` (needs `allow_remote_control`) |
+| wezterm | `terminal.wezterm` | `wezterm cli activate-pane --pane-id N` |
+| iterm | macOS and `terminal.iterm` | `osascript -e <constant script> <uuid>`, matched on the session's `unique id` |
+| apple-terminal | macOS, Terminal.app and a tty | `osascript -e <constant script> <tty>`, matched on the tab's `tty` |
+| x11 | Linux, `DISPLAY` set, not Wayland | `xdotool windowactivate <WINDOWID>`, falling back to `wmctrl -i -a 0x…`; without `WINDOWID`, `xdotool search --pid` or `wmctrl -lp` over the ancestors |
+| sway / hyprland | `SWAYSOCK` / `HYPRLAND_INSTANCE_SIGNATURE` | `swaymsg [pid=N] focus` / `hyprctl dispatch focuswindow pid:N` over the ancestors |
+
+AppleScript identifiers are passed through `on run argv`, never interpolated. Every call goes through `execFile` with a 1.5 s timeout; a missing binary, a timeout and a non-zero exit become distinct failure reasons. Generic Wayland (GNOME, KDE) has no focus API, which `doctor`, `setup` and the fallback hint say explicitly.
+
+### TUI (`src/cli/tui/`)
+
+- `state.ts` is a pure reducer: snapshot/session/removed/health/connection events, selection anchored to a session id (clamped by index when it disappears), filters (status, priority shortcuts, ended, label query with live preview and cancel), sort cycle, view (split or drill-down), help, bell, status line, highlights and header flash. Cues come from `announcementFor` (newly needs attention or error, newly critical risk) and never fire for a reconnect snapshot.
+- `keys.ts` maps input to actions or effects (`focus`, `quit`, `reconnect`); while the label query is open every key goes to it.
+- `Screen.tsx` renders the state with no I/O: header (connection, model, counts, bell), banners (receiver offline with retry countdown, model degraded), filter bar, list beside the detail at 100+ columns or list/detail drill-down below that, status line, context-sensitive footer, help overlay, empty and connecting states. The list scrolls around the selection.
+- `App.tsx` owns the effects: SSE via `src/cli/sse.ts` (backoff 0.5 s doubling to 15 s with ±20% jitter, `offline` after three failures, 40 s idle timeout against dead sockets), health polling every 10 s, a 1 s tick, debounced detail fetches from `/api/sessions/:id`, the bell, and focus.
+- `theme.ts`: colour off for `NO_COLOR`, `TERM=dumb`, non-TTY output or `--no-color`; Unicode glyphs only with a UTF-8 locale and `TERM≠linux`. Every glyph has a textual meaning, so the UI reads the same without colour.
+- Ink runs in the alternate screen with `exitOnCtrlC` off (q and Ctrl-C quit through the app). SIGINT/SIGTERM/SIGHUP unmount Ink, which restores the screen, cursor and raw mode; `uncaughtException`/`unhandledRejection` additionally reset raw mode, show the cursor and leave the alternate screen before printing the error.
+
+### Setup (`src/cli/setup.ts`)
+
+At most three questions: install the hooks (with the add/replace summary), local AI (default model, custom URL and model, or off; Ollama is probed and a missing model prints the exact `ollama pull` command), and a test focus of the current terminal when a focus route exists (with the macOS Automation note). The token is created silently. `--yes` installs hooks, keeps AI on and skips the focus test. Re-running pre-fills the current answers. The flow is a pure function over an injected `Prompter`, so every branch is tested.
 
 ## 9. Configuration
 
-Read by `src/receiver/config.ts` (receiver) and `src/lib/receiver.ts` (dashboard). Bounds are clamped.
+Most users only answer the setup questions. Everything else has defaults and can be overridden with environment variables or the config file.
+
+Files (directories 0700, files 0600):
+
+| | Linux | macOS |
+| --- | --- | --- |
+| config dir: `config.json`, `ingest-token`, `ingest-header` | `$XDG_CONFIG_HOME/attention-manager` (default `~/.config/…`) | `~/Library/Application Support/attention-manager` |
+| state dir: `attention.db` | `$XDG_STATE_HOME/attention-manager` (default `~/.local/state/…`) | same as config dir |
+| logs: `receiver.log` | `<state dir>/logs` | `~/Library/Logs/attention-manager` |
+
+Explicit `XDG_CONFIG_HOME`/`XDG_STATE_HOME` win on macOS too; `ATTENTION_CONFIG_DIR` and `ATTENTION_STATE_DIR` override both. `config.json` is validated by zod (`src/cli/config.ts`): `{version: 1, classifier: {enabled, ollamaUrl, model}, terminal: {confirmed}, bell, receiver: {port}}`; an invalid file stops every command except `setup` and `doctor` with exit 2.
+
+Precedence for receiver settings: environment variable, then config file, then built-in default. Bounds are clamped.
 
 | Variable | Default | Range / meaning |
 | --- | --- | --- |
-| `RECEIVER_HOST`, `RECEIVER_PORT` | `127.0.0.1`, `4318` | non-loopback hosts log a warning |
-| `RECEIVER_URL` | `http://127.0.0.1:4318` | dashboard proxy target |
-| `PORT` | `3000` | Next.js |
-| `DATABASE_PATH` | `./data/attention.db` | `:memory:` allowed |
-| `INGEST_TOKEN_PATH` / `ATTENTION_INGEST_TOKEN` | `./data/ingest-token` | token file or literal override |
-| `ATTENTION_ALLOW_NO_TOKEN` | unset | `1` allows unauthenticated loopback ingest; otherwise startup fails without a token |
+| `RECEIVER_HOST`, `RECEIVER_PORT` | `127.0.0.1`, config `receiver.port` (`4318`) | non-loopback hosts log a warning |
+| `ATTENTION_RECEIVER_URL` | derived from the port | hook and CLI target override |
+| `DATABASE_PATH` | state dir `attention.db` | `:memory:` allowed |
+| `INGEST_TOKEN_PATH` / `ATTENTION_INGEST_TOKEN` | config dir `ingest-token` | token file or literal override |
 | `MAX_BODY_BYTES` | `262144` | 1 KiB to 10 MB |
 | `EVENT_HISTORY_LIMIT` | `50` | per session |
 | `STALE_AFTER_MS` | `600000` | |
 | `DEDUPE_WINDOW_MS` | `5000` | `0` disables |
 | `RATE_LIMIT_PER_SESSION`, `RATE_LIMIT_GLOBAL` | `120`, `1200` | events per minute |
 | `MAX_SESSIONS`, `RETENTION_DAYS` | `1000`, `7` | eviction cap, purge age |
-| `OLLAMA_URL`, `OLLAMA_MODEL` | `http://127.0.0.1:11434`, `qwen3:1.7b` | non-loopback URL logs a warning |
+| `OLLAMA_URL`, `OLLAMA_MODEL` | config `classifier.*` | non-loopback URL logs a warning |
 | `CLASSIFY_TIMEOUT_MS` | `15000` | 0.5 s to 10 min |
 | `CAPTURE_TASK_CONTEXT` | `1` | `0` disables task context and severity |
+| `ATTENTION_HOOK_TIMEOUT` | `2` | hook POST timeout in seconds |
+| `CLAUDE_SETTINGS_PATH` | `~/.claude/settings.json` | where hooks are installed |
+| `NO_COLOR`, `TERM` | | colour and glyph fallbacks |
 | `LOG_LEVEL` | `info` | payloads are never logged |
+
+The receiver always has a token: `attention receiver` creates one when it is missing, so the old `ATTENTION_ALLOW_NO_TOKEN` path is no longer reachable from the CLI.
 
 ## 10. Security model in brief
 
-Trust boundaries: hook script → receiver (attacker-influenceable text, identity by token), receiver → Ollama (clamped text out, untrusted JSON in), receiver → browser (strings originating from events or the model, rendered as text).
+Trust boundaries: hook forwarder → receiver (attacker-influenceable text and terminal identity, identity by token), receiver → Ollama (clamped text out, untrusted JSON in), receiver → TUI (strings originating from events or the model, rendered as terminal text), TUI → focus commands (stored terminal identity becomes command arguments).
 
-Controls: loopback bind for both processes; Host and Origin checks; token in a 0600 header file; Content-Type gate; byte-counted body limit; rate limits; session and SSE caps; retention purge; schema stripping of everything not used; sanitization and secret redaction; delimited and escaped model input; schema-validated model output that can only raise priorities above rule floors and never changes status; no code path executes anything derived from events or model output; CSP and security headers on the dashboard; lint rule against raw HTML.
+Controls: loopback bind for both processes; Host and Origin checks; token in a 0600 header file; Content-Type gate; byte-counted body limit; rate limits; session and SSE caps; retention purge; schema stripping of everything not used; sanitization and secret redaction; delimited and escaped model input; schema-validated model output that can only raise priorities above rule floors and never changes status; terminal identity is allow-listed per field and only ever reaches `execFile` argument arrays (never a shell, AppleScript values only via argv) with a timeout; the hook command written to settings.json is built only from paths without quote or shell metacharacters; the TUI strips control characters from what it echoes (label query) and renders event text through Ink, which does not interpret it.
 
-Accepted residual risks: a same-uid process can read the token and forge events; model verdicts can still carry misleading wording within the floors; dev-mode CSP allows inline and eval; event text crosses the loopback socket before being trimmed when `jq` is absent; SQLite is unencrypted beyond file mode.
+Accepted residual risks: a same-uid process can read the token and forge events, including a terminal identity that makes focus select a different (but allow-listed) tmux pane or window; model verdicts can still carry misleading wording within the floors; SQLite is unencrypted beyond file mode; focusing on X11 by process ancestry can pick another window of a multi-window terminal emulator.
 
 ## 11. Testing and evaluation
 
@@ -267,17 +351,21 @@ Accepted residual risks: a same-uid process can read the token and forge events;
 | `tests/state-machine.test.ts` | every transition, delayed and out-of-order sequences, floors, task severity, sorting |
 | `tests/risk.test.ts` | keyword rules |
 | `tests/persistence.test.ts` | round-trips, pruning, dedupe lookup, purge, restart recovery |
-| `tests/classifier.test.ts`, `tests/classifier-eval.test.ts` | output parsing, prompt building, client errors and timeouts (including stalled bodies), thinking detection, fixtures with a mocked model |
-| `tests/receiver.test.ts` | HTTP controls, dedupe, rate limits, SSE, caps, concurrency bursts, classifier failure and success paths, restart, task severity end to end |
-| `tests/dashboard-*.test.ts(x)` | sort, filters, formatting, announcements, a happy-dom mount of the full dashboard |
+| `tests/classifier.test.ts`, `tests/classifier-eval.test.ts` | output parsing, prompt building, client errors and timeouts, fixtures with a mocked model |
+| `tests/receiver.test.ts` | HTTP controls, dedupe, rate limits, SSE, caps, concurrency bursts, classifier paths, restart, task severity end to end |
+| `tests/terminal-*.test.ts`, `tests/hook-forwarder.test.ts` | terminal sanitising, env fixtures per terminal, process-tree walk, payload minimisation, store migration, the forwarder against a live receiver |
+| `tests/cli-focus.test.ts` | adapter selection per platform/terminal/compositor and the exact argv each adapter runs, via a fake exec |
+| `tests/cli-*.test.ts` | paths and platform guard, config, hooks merge/status, args and exit codes, SSE parser and backoff, lifecycle decisions, list/focus/hooks commands against a live receiver, doctor checks, setup flow with a fake prompter, sort/filter/format ports, colour rules |
+| `tests/tui-*.test.ts(x)` | reducer, key map, Screen renders (wide, narrow, empty, connecting, degraded, offline, help, label query, no-colour) |
+| `tests/cli-smoke.test.ts` | the built `dist/cli/main.js` and `dist/hook/main.js` in an isolated HOME (skipped until `pnpm build` has run) |
 
-Live model evaluation (needs Ollama): `node --no-warnings=ExperimentalWarning scripts/eval-classifier.ts [--task] <model…>` against `tests/fixtures/classifier-cases.json` and `tests/fixtures/task-cases.json`. Results on a GTX 1650 are recorded in the README and in `docs/worklogs/`.
+Live model evaluation (needs Ollama): `node scripts/eval-classifier.ts [--task] <model…>` against `tests/fixtures/classifier-cases.json` and `tests/fixtures/task-cases.json`.
 
-Commands: `pnpm test`, `pnpm typecheck`, `pnpm lint`, `pnpm build`, `pnpm doctor`.
+Commands: `pnpm lint`, `pnpm typecheck`, `pnpm build`, `pnpm test`, or all of them plus `npm pack --dry-run` with `pnpm verify`.
 
 ## 12. Operational notes
 
-- `pnpm dev` runs `scripts/dev.mjs`, which spawns the receiver (with `--env-file-if-exists=.env`) and `next dev -H 127.0.0.1` (Next loads `.env` itself; passing the Node flag to it breaks because Next forwards `NODE_OPTIONS` to a child).
+- From a checkout, `pnpm attention` runs the CLI from source (`node src/cli/main.ts`); hooks installed from a checkout point at `src/hook/main.ts`.
 - The receiver warms the model at startup (first load can take 5 to 15 s on this hardware; later calls are about 1 to 3 s).
-- `pnpm doctor` checks receiver, hooks, token, SQLite, model runtime and model, last event and last classification error, and posts an authenticated probe event.
-- Teardown: `pnpm hooks:uninstall`, delete `data/`, optionally remove the user-local Ollama.
+- The spawned receiver's output goes to the receiver log (section 9).
+- Teardown: `attention hooks uninstall`, `npm rm -g attention-manager`, then delete the config, state and log directories; optionally remove the user-local Ollama.
