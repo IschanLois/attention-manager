@@ -1,3 +1,4 @@
+import { DEFAULT_LATENCY_BUDGET_MS, pickBestModel, type BenchmarkResult } from "../core/classifier/benchmark.ts";
 import { configSchema, DEFAULT_MODEL, DEFAULT_OLLAMA_URL, type CliConfig } from "./config.ts";
 import type { FocusResult } from "./focus/types.ts";
 
@@ -32,6 +33,7 @@ export interface SetupDeps {
   };
   ensureToken(): void;
   probeOllama(url: string, model: string): Promise<{ reachable: boolean; modelInstalled: boolean }>;
+  benchmarkModels(url: string, onModel: (model: string) => void): Promise<{ reachable: boolean; results: BenchmarkResult[] }>;
   terminal: { backends: string[]; wayland: boolean; testFocus(): Promise<FocusResult> };
   save(config: CliConfig): void;
 }
@@ -68,7 +70,39 @@ async function askHooks({ prompter, yes, hooks }: SetupDeps): Promise<void> {
   } else prompter.warn("Skipped. Sessions will not appear until you run `attention hooks install`.");
 }
 
-async function askClassifier({ prompter, yes, existing, probeOllama }: SetupDeps): Promise<CliConfig["classifier"]> {
+function seconds(ms: number): string {
+  return `${(ms / 1000).toFixed(1)} s`;
+}
+
+function benchmarkTable(results: BenchmarkResult[]): string {
+  return results.map((r) => `${r.model}: needs-attention ${r.attentionHits}/${r.total}, priority ${r.priorityHits}/${r.total}, median ${seconds(r.p50Ms)}${r.invalid ? `, ${r.invalid} unusable` : ""}`).join("\n");
+}
+
+// Returns the model that suits this device, or null when nothing could be benchmarked.
+async function chooseByBenchmark({ prompter, benchmarkModels }: SetupDeps, ollamaUrl: string): Promise<string | null> {
+  prompter.info("Benchmarking the models installed in Ollama on this device. This can take a few minutes.");
+  const { reachable, results } = await benchmarkModels(ollamaUrl, (model) => prompter.info(`Testing ${model}...`));
+  if (!reachable) {
+    prompter.warn(`Ollama is not reachable at ${ollamaUrl}. Classification stays rule-based until it is running (ollama serve).`);
+    return null;
+  }
+  if (!results.length) {
+    prompter.warn(`No models are installed. Pull one with:\n  ollama pull ${DEFAULT_MODEL}`);
+    return null;
+  }
+  prompter.note(benchmarkTable(results), "Benchmark");
+  const pick = pickBestModel(results);
+  if (!pick) {
+    prompter.warn("No model gave usable answers.");
+    return null;
+  }
+  if (pick.withinBudget) prompter.success(`${pick.model} is the most accurate model that answers within ${seconds(DEFAULT_LATENCY_BUDGET_MS)} here.`);
+  else prompter.warn(`Every model is slow for this device (over ${seconds(DEFAULT_LATENCY_BUDGET_MS)} per answer). ${pick.model} is the fastest.`);
+  return pick.model;
+}
+
+async function askClassifier(deps: SetupDeps): Promise<CliConfig["classifier"]> {
+  const { prompter, yes, existing, probeOllama } = deps;
   const current = existing.classifier;
   const isDefault = current.ollamaUrl === DEFAULT_OLLAMA_URL && current.model === DEFAULT_MODEL;
   const initial = !current.enabled ? "off" : isDefault ? "default" : "custom";
@@ -79,6 +113,7 @@ async function askClassifier({ prompter, yes, existing, probeOllama }: SetupDeps
           "Use a local AI model (Ollama) to classify ambiguous events? Nothing leaves this machine.",
           [
             { value: "default", label: `Yes, ${DEFAULT_MODEL} at ${DEFAULT_OLLAMA_URL}`, hint: "recommended" },
+            { value: "benchmark", label: "Yes, benchmark my installed models and pick the best for this device", hint: "takes a few minutes" },
             { value: "custom", label: "Yes, with a different URL or model", hint: isDefault ? undefined : `${current.model} at ${current.ollamaUrl}` },
             { value: "off", label: "No, rule-based only" },
           ],
@@ -89,6 +124,10 @@ async function askClassifier({ prompter, yes, existing, probeOllama }: SetupDeps
 
   let ollamaUrl = DEFAULT_OLLAMA_URL;
   let model = DEFAULT_MODEL;
+  if (choice === "benchmark") {
+    const best = await chooseByBenchmark(deps, ollamaUrl);
+    return { enabled: true, ollamaUrl, model: best ?? DEFAULT_MODEL };
+  }
   if (choice === "custom") {
     ollamaUrl = answered(await prompter.text("Ollama URL", current.ollamaUrl, validUrl)).trim().replace(/\/+$/, "");
     model = answered(await prompter.text("Model", current.model, (v) => (v.trim() ? undefined : "Enter a model name"))).trim();

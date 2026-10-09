@@ -35,7 +35,7 @@ attention
 The first run asks at most three questions and then opens the live UI:
 
 1. **Install the Claude Code hooks** into `~/.claude/settings.json`? Your own hooks are kept, a backup is written to `settings.json.attention-backup` once, and a random ingest token is created (mode 0600). Restart running `claude` sessions afterwards.
-2. **Use local AI classification?** The default is `qwen3:1.7b` on `http://127.0.0.1:11434`; you can pick another URL or model, or rule-based only. If the model is missing, setup prints the exact `ollama pull` command; it never downloads anything itself.
+2. **Use local AI classification?** The default is `qwen3:1.7b` on `http://127.0.0.1:11434`; you can pick another URL or model, or rule-based only. Choosing "benchmark my installed models" runs the classifier fixtures against every model installed in Ollama and saves the most accurate one that answers within 3 s on this device (the fastest one if none does). It never pulls models, and `--yes` skips it. If the model is missing, setup prints the exact `ollama pull` command; it never downloads anything itself.
 3. **Test terminal focus?** Setup shows which focus route it detected for your terminal and tries it.
 
 Re-run `attention setup` at any time to change the answers, or `attention setup --yes` to accept the defaults non-interactively (CI, scripts). Ports, timeouts, retention and limits are never asked; see [Configuration](#configuration).
