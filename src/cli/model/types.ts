@@ -24,7 +24,7 @@ export const SORT_MODES: readonly SortMode[] = ["attention", "recent", "label"];
 export const STATUS_LABELS: Record<SessionStatus, string> = {
   starting: "Starting",
   working: "Working",
-  needs_attention: "Needs attention",
+  needs_attention: "Needs input",
   error: "Error",
   completed: "Turn complete",
   idle: "Idle / unknown",

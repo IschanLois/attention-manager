@@ -160,10 +160,10 @@ describe("filters", () => {
 });
 
 describe("announcementFor", () => {
-  it("announces a session that starts needing attention", () => {
+  it("announces a session that starts needing input", () => {
     const before = session();
     const after = session({ status: "needs_attention", priority: "high", attentionReason: "Waiting for permission" });
-    expect(announcementFor(before, after)).toBe("Session demo now needs attention: Waiting for permission");
+    expect(announcementFor(before, after)).toBe("Session demo now needs input: Waiting for permission");
     expect(announcementFor(after, after)).toBeNull();
   });
 

@@ -79,7 +79,7 @@ export function toListJson(sessions: readonly SessionView[], nowMs: number, focu
 
 function table(sessions: readonly SessionView[], nowMs: number): string[] {
   if (sessions.length === 0) return ["No sessions match."];
-  const rows = sessions.map((s) => [sessionLabel(s.label, s.sessionId), STATUS_LABELS[s.status], PRIORITY_LABELS[s.priority], relativeTime(s.lastSeenAt, nowMs), s.attentionReason ?? s.taskSummary ?? ""]);
+  const rows = sessions.map((s) => [sessionLabel(s.label, s.sessionId), STATUS_LABELS[s.status], PRIORITY_LABELS[s.taskSeverity], relativeTime(s.lastSeenAt, nowMs), s.attentionReason ?? s.taskSummary ?? ""]);
   const header = ["SESSION", "STATUS", "PRIORITY", "SEEN", "REASON"];
   const widths = header.map((h, i) => Math.max(h.length, ...rows.map((r) => r[i]!.length)));
   const line = (cells: string[]) => cells.map((c, i) => (i === cells.length - 1 ? c : c.padEnd(widths[i]!))).join("  ").trimEnd();

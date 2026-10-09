@@ -57,7 +57,10 @@ describe("Screen", () => {
     expect(text).toMatch(/live/);
     expect(text).toMatch(/2 sessions\W+1 need you\W+1 high risk/);
     expect(text.indexOf("billing-api")).toBeLessThan(text.indexOf("docs-site"));
-    expect(text).toMatch(/HIGH/);
+    expect(rowOf(text, "billing-api")).toMatch(/CRITICAL\s+billing-api\s+Needs input/);
+    expect(rowOf(text, "billing-api")).not.toMatch(/!critical/);
+    expect(rowOf(text, "docs-site")).toMatch(/None\s+docs-site/);
+    expect(frame(reduce(withSessions(), { type: "priority", level: 1 }), 120)).toMatch(/priority critical\+/);
     expect(text.indexOf("docs-site")).toBeLessThan(text.indexOf("Migrate the invoices table"));
     expect(text).toMatch(/^Task\s*$/m);
     expect(text).toMatch(/Dropping a production table/);
@@ -217,7 +220,7 @@ describe("AI confidence", () => {
 
   it("shows the attention confidence on the row so it is visible without opening the detail", () => {
     const text = frame(aiState(), 80);
-    expect(text).toMatch(/!critical AI confidence 72%/);
+    expect(text).toMatch(/CRITICAL billing-api\s+Turn complete\s+\S+\s+AI confidence 72%/);
   });
 
   it("marks rule-based verdicts as observed in the detail", () => {

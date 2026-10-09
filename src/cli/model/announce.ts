@@ -11,7 +11,7 @@ export function isAlerting(session: Pick<SessionView, "status"> | undefined): bo
 
 function attentionTransition(previous: SessionView | undefined, next: SessionView): string | null {
   if (!isAlerting(next) || isAlerting(previous)) return null;
-  const what = next.status === "error" ? "reported an error" : "now needs attention";
+  const what = next.status === "error" ? "reported an error" : "now needs input";
   return withReason(`Session ${sessionLabel(next.label, next.sessionId)} ${what}`, next.attentionReason);
 }
 

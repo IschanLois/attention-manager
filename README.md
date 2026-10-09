@@ -6,11 +6,11 @@ A terminal UI that watches all your Claude Code sessions at once, tells you whic
  attention  ● live · model qwen3:1.7b · 3 sessions · 1 need you · 1 high risk · bell on
  sort attention · ended hidden
      PRIORITY SESSION      STATUS          SEEN   TERMINAL       REASON
- ▶ ● CRITICAL billing-api  Needs attention 0s     tmux %2        ⚠ critical Waiting for permission to run Bash
+ ▶ ● CRITICAL billing-api  Needs input     0s     tmux %2        Waiting for permission to run Bash
    ◐ None     docs-site    Working         2m     vscode pts/3   Tool finished
    ↩ Low      infra        Turn complete   5m     kitty 4        Turn finished
  ──────────────────────────────────────────────────────────────────────────────────────────────────
- billing-api (a1b2c3d4) Needs attention CRITICAL
+ billing-api (a1b2c3d4) Needs input CRITICAL
  seen 0s ago · terminal: tmux %2, /dev/pts/4, pid 4242
  …
  j/k move · Enter focus · d expand · / filter · s sort · e ended · 1-5 priority · ? help · q quit
@@ -69,7 +69,7 @@ Global flag: `--no-color` (also `NO_COLOR=1`; colour is off automatically when o
 | `/` | Filter by label or id (Enter keeps it, Esc restores the previous one) |
 | `s` | Cycle sort: attention, recent, label |
 | `e` | Show or hide ended sessions |
-| `1` `2` `3` `4` | Only critical / high and above / medium and above / low and above (press again to clear) |
+| `1` `2` `3` `4` | Only critical / high and above / medium and above / low and above risk (press again to clear) |
 | `5` | Clear the priority filter |
 | `b` | Toggle the terminal bell on new alerts |
 | `r` | Reconnect to the receiver now |
@@ -133,7 +133,8 @@ Beyond "who is blocked", each session carries a risk level for how consequential
 - **Keyword rules first:** DDL (`DROP`/`ALTER`/`TRUNCATE`), `rm -rf`, force pushes, hard resets, `DELETE FROM`, production deploys, Terraform/kubectl mutations are **critical**; migrations, auth/billing/secrets, `sudo`, `curl | sh`, publishing are **high**; dependency changes, branch switches, broad refactors are **medium**; everything else is **low**.
 - **Model second:** on each new prompt and finished turn the local model rates the task. It can raise the keyword floor by at most one level and never lower it. The detail view says "Observed" for keyword matches and "AI confidence nn%" for model verdicts, for both the attention reason and the risk; rows show "AI confidence nn%" in front of a model-written reason.
 - **Escalation:** a permission request for a critical-risk command is shown as attention priority **critical**.
-- **Ranking:** active before ended, then attention priority, then task severity, then fresh before stale, then recency.
+- **Priority column:** shows the task risk, not whether the session is waiting for input; the status column says "Needs input" for that.
+- **Ranking:** active sessions first, then done ones (turn complete or idle), then ended; within each group task risk, then attention priority, then fresh before stale, then recency.
 
 Set `CAPTURE_TASK_CONTEXT=0` to disable the capture; severity then stays at "none".
 
@@ -143,7 +144,7 @@ Set `CAPTURE_TASK_CONTEXT=0` to disable the capture; severity then stays at "non
 | --- | --- |
 | Starting | `SessionStart` |
 | Working | prompt submitted, tool started or finished |
-| Needs attention | `PermissionRequest`, `Notification` of type `permission_prompt`, `idle_prompt` or `elicitation_dialog` |
+| Needs input | `PermissionRequest`, `Notification` of type `permission_prompt`, `idle_prompt` or `elicitation_dialog` |
 | Error | `PostToolUseFailure` (3 failures in 2 minutes escalate to medium) |
 | Turn complete | `Stop` (a finished turn is never treated as a terminated session) |
 | Idle | tool interrupted by the user |

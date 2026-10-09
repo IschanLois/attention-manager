@@ -338,7 +338,7 @@ describe("task severity", () => {
     expect(applyTaskClassification(s2, startEvent, { needs_attention: true, priority: "high", reason: "x", evidence: [], confidence: 0.8 }, "2026-10-09T09:00:00.000Z", s2.eventSeq).taskSeverity).toBe("low");
   });
 
-  it("sorts by task severity after attention priority", () => {
+  it("sorts by task severity before attention priority, with done sessions below active ones", () => {
     const now = Date.parse("2026-10-09T10:00:00.000Z");
     const t = (minAgo: number) => new Date(now - minAgo * 60_000).toISOString();
     const base = reduceSession(null, ev(fx.sessionStart()));
@@ -347,8 +347,10 @@ describe("task severity", () => {
       mk("working-low", { status: "working", priority: "none", taskSeverity: "low", lastSeenAt: t(1) }),
       mk("working-critical", { status: "working", priority: "none", taskSeverity: "critical", lastSeenAt: t(5) }),
       mk("attention", { status: "needs_attention", priority: "high", taskSeverity: "none", lastSeenAt: t(9) }),
+      mk("completed-critical", { status: "completed", priority: "medium", taskSeverity: "critical", lastSeenAt: t(1) }),
+      mk("idle-high", { status: "idle", priority: "low", taskSeverity: "high", lastSeenAt: t(1) }),
     ], now, 600_000).map((s) => s.sessionId);
-    expect(ids).toEqual(["attention", "working-critical", "working-low"]);
+    expect(ids).toEqual(["working-critical", "working-low", "attention", "completed-critical", "idle-high"]);
   });
 });
 

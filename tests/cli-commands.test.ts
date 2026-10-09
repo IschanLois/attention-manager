@@ -168,7 +168,7 @@ describe("commands against a live receiver", () => {
   it("prints a readable table without --json and rejects bad filters with exit 2", async () => {
     const ctx = context({ receiverUrl: url });
     expect(await runList(ctx, {})).toBe(0);
-    expect(ctx.output.join("\n")).toMatch(/alpha.*Needs attention/);
+    expect(ctx.output.join("\n")).toMatch(/alpha.*Needs input/);
     const bad = context({ receiverUrl: url });
     expect(await runList(bad, { status: "bogus" })).toBe(2);
     expect(bad.errors.join("\n")).toMatch(/unknown --status value/);

@@ -159,8 +159,8 @@ export function reduce(state: TuiState, action: Action): TuiState {
     case "priority": {
       const minimum = action.level === 5 ? null : PRIORITY_VALUES[action.level - 1]!;
       const wanted = minimum ? prioritiesAtLeast(minimum) : [];
-      const same = wanted.length === state.filters.priorities.length && wanted.every((p, i) => state.filters.priorities[i] === p);
-      return reselect({ ...state, filters: { ...state.filters, priorities: same ? [] : wanted } }, state.now);
+      const same = wanted.length === state.filters.risks.length && wanted.every((p, i) => state.filters.risks[i] === p);
+      return reselect({ ...state, filters: { ...state.filters, risks: same ? [] : wanted } }, state.now);
     }
     case "label-start":
       return { ...state, labelDraft: state.filters.label, labelBeforeEdit: state.filters.label };

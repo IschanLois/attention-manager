@@ -313,14 +313,19 @@ export function isStale(session: Session, nowMs: number, staleAfterMs: number): 
   return nowMs - Date.parse(session.lastSeenAt) > staleAfterMs;
 }
 
+function phaseRank(status: Session["status"]): number {
+  if (status === "ended") return 2;
+  return status === "completed" || status === "idle" ? 1 : 0;
+}
+
 export function sortSessions(sessions: Session[], nowMs: number, staleAfterMs: number): Session[] {
   return [...sessions].sort((a, b) => {
-    const endedDiff = Number(a.status === "ended") - Number(b.status === "ended");
-    if (endedDiff !== 0) return endedDiff;
-    const priorityDiff = PRIORITY_RANK[a.priority] - PRIORITY_RANK[b.priority];
-    if (priorityDiff !== 0) return priorityDiff;
+    const phaseDiff = phaseRank(a.status) - phaseRank(b.status);
+    if (phaseDiff !== 0) return phaseDiff;
     const severityDiff = PRIORITY_RANK[a.taskSeverity] - PRIORITY_RANK[b.taskSeverity];
     if (severityDiff !== 0) return severityDiff;
+    const priorityDiff = PRIORITY_RANK[a.priority] - PRIORITY_RANK[b.priority];
+    if (priorityDiff !== 0) return priorityDiff;
     const staleDiff = Number(isStale(a, nowMs, staleAfterMs)) - Number(isStale(b, nowMs, staleAfterMs));
     if (staleDiff !== 0) return staleDiff;
     const recency = Date.parse(b.lastSeenAt) - Date.parse(a.lastSeenAt);
