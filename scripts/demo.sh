@@ -1,12 +1,13 @@
 #!/usr/bin/env bash
 # Opens the attention TUI and several real Claude Code sessions, each steered into a
-# different state, so the TUI can be watched ranking them and Enter can jump to each one.
+# different state. Most scenarios are worded so no keyword rule matches: the ranking and the
+# reasons shown in the TUI then come from the local model (Ollama).
 set -euo pipefail
 
 SELF="$(readlink -f "${BASH_SOURCE[0]}")"
 DEMO_DIR="${ATTENTION_DEMO_DIR:-${TMPDIR:-/tmp}/attention-demo}"
 MODEL="${ATTENTION_DEMO_MODEL:-}"
-SCENARIOS=(needs-approval risky-cleanup long-task question quick-done)
+SCENARIOS=(soft-question hidden-risk benign-failure needs-approval risky-cleanup quick-done)
 
 usage() {
   cat <<EOF
@@ -16,11 +17,13 @@ Opens the attention TUI and one Claude Code session per scenario, each in its ow
 terminal window (or tmux window with --tmux). Every session runs in its own folder under
 $DEMO_DIR, so its label in the TUI is the scenario name.
 
-Scenarios:
+Scenarios (the first three are decided by the local AI; no keyword rule matches them):
+  soft-question   ends its turn asking you to choose, without a question mark
+  hidden-risk     asks to empty a customer records file, with none of the risky keywords
+  benign-failure  runs a command that fails harmlessly, which the AI should not escalate
   needs-approval  asks to write a file and waits on the permission prompt
-  risky-cleanup   asks to run rm -rf on its build folder (deny it to keep it)
-  long-task       runs a 45 s command with no prompt, then finishes
-  question        ends its turn with a question for you
+  risky-cleanup   asks to run rm -rf on its build folder (deny it to keep it); a keyword rule
+                  flags it and the AI explains why
   quick-done      answers in one word and goes idle
 
 Options:
@@ -43,10 +46,11 @@ die() { echo "demo: $*" >&2; exit 1; }
 
 prompt_for() {
   case "$1" in
+    soft-question) echo "I need a small greeting script here. Before you write any code, tell me which of Python or Go you would rather I get, then stop and wait for my decision." ;;
+    hidden-risk) echo "customers.csv in this folder is the live list the support team works from. Replace its contents with just the header row so we can start fresh, and do nothing else." ;;
+    benign-failure) echo "Run 'cat missing-notes.txt' once. If it does not exist, just tell me in one sentence and stop; do not try to fix it." ;;
     needs-approval) echo "Create a file named notes.txt in this folder containing one line: 'attention demo'. Do not do anything else." ;;
     risky-cleanup) echo "This folder is running out of space. Delete the build directory by running exactly: rm -rf build" ;;
-    long-task) echo "Run the shell command 'sleep 45 && echo finished' and then reply with only the word done." ;;
-    question) echo "I want a hello-world program. Before writing anything, ask me whether I want Python or Go, then stop and wait for my answer." ;;
     quick-done) echo "Reply with exactly the word ready and nothing else." ;;
     *) die "unknown scenario: $1" ;;
   esac
@@ -59,7 +63,7 @@ run_session() {
   cd "$DEMO_DIR/$name"
   local args=(--permission-mode default -n "demo: $name")
   [[ -n "$MODEL" ]] && args+=(--model "$MODEL")
-  [[ "$name" == "long-task" ]] && args+=(--allowedTools "Bash(sleep:*)" "Bash(echo:*)")
+  [[ "$name" == "benign-failure" ]] && args+=(--allowedTools "Bash(cat:*)")
   printf '\033]2;demo: %s\007' "$name"
   claude "${args[@]}" "$(prompt_for "$name")" || true
   echo
@@ -73,6 +77,9 @@ prepare_folders() {
     rm -rf "${DEMO_DIR:?}/$name"
     mkdir -p "$DEMO_DIR/$name"
   done
+  if [[ -d "$DEMO_DIR/hidden-risk" ]]; then
+    printf 'name,email,plan\nAda Lovelace,ada@example.com,pro\nAlan Turing,alan@example.com,team\n' >"$DEMO_DIR/hidden-risk/customers.csv"
+  fi
   if [[ -d "$DEMO_DIR/risky-cleanup" ]]; then
     mkdir -p "$DEMO_DIR/risky-cleanup/build/assets"
     head -c 65536 /dev/urandom >"$DEMO_DIR/risky-cleanup/build/bundle.js"
@@ -137,6 +144,9 @@ main() {
   [[ -x "$ATTENTION" ]] || die "attention is not built; run pnpm build"
   "$ATTENTION" hooks status | grep -q "Status: *installed" || die "hooks are not installed; run: attention setup"
 
+  "$ATTENTION" doctor 2>/dev/null | grep -i "local model" | grep -qi "available" \
+    || echo "demo: warning: the local model is not available, so the AI scenarios will show the rule-based fallback. Run: attention doctor" >&2
+
   local selected=("${SCENARIOS[@]}")
   if [[ -n "$only" ]]; then
     IFS=, read -r -a selected <<<"$only"
@@ -166,10 +176,12 @@ main() {
   cat <<EOF
 Opened ${#selected[@]} Claude session(s) in $DEMO_DIR.
 First run only: accept the folder-trust prompt in each window.
-What to watch in the TUI:
-  - needs-approval and risky-cleanup jump to the top as needing attention; risky-cleanup is flagged as risky.
-  - long-task shows as working for ~45 s, then drops to turn complete.
-  - question waits for your answer; quick-done shows turn complete at low priority.
+What to watch in the TUI (the "AI" label marks verdicts from the local model):
+  - soft-question: no keyword matches, yet the AI ranks it as waiting on you and quotes the sentence that asks for your decision.
+  - hidden-risk: the rules see nothing risky; the AI raises the task and explains that it empties a live customer file.
+  - benign-failure: the command fails, but the AI keeps it low instead of calling it an emergency.
+  - needs-approval and risky-cleanup rise to the top; risky-cleanup carries a risk flag and an AI reason.
+  - quick-done shows turn complete at low priority.
   - Select a row and press Enter: the session's own window comes forward, even when minimised.
 Clean up with: scripts/demo.sh --clean
 EOF
