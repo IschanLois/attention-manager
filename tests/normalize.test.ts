@@ -56,14 +56,14 @@ describe("normalizeHookEvent", () => {
     expect(normalize({ hook_event_name: 42 }).ok).toBe(false);
   });
 
-  it("never copies prompt text, tool input, or paths into the summary", () => {
+  it("keeps prompt text and tool input out of the stored summary and paths out of everything", () => {
     const prompt = normalize(fx.userPromptSubmit());
     const tool = normalize(fx.preToolUse());
     expect(prompt.ok && prompt.event.summary).toBe("Prompt submitted");
     expect(tool.ok && tool.event.summary).toBe("Running Bash");
     for (const r of [prompt, tool]) {
       if (!r.ok) continue;
-      expect(JSON.stringify(r.event)).not.toContain("node hello.js");
+      expect(r.event.summary).not.toContain("node hello.js");
       expect(JSON.stringify(r.event)).not.toContain("/home/dev");
       expect(r.event.classifierText).toBeNull();
     }
@@ -91,7 +91,7 @@ describe("normalizeHookEvent", () => {
     expect(result.event.toolName).toBe("Bash");
     expect(result.event.toolUseId).toBe("toolu_01HNJhjMNUijyBRhiiwRiBJC");
     expect(result.event.summary).toBe("Permission requested for Bash");
-    expect(JSON.stringify(result.event)).not.toContain("touch probe-file.txt");
+    expect(result.event.taskText).toBe("Bash: touch probe-file.txt");
   });
 
   it("keeps the notification type and a bounded message", () => {
@@ -147,6 +147,36 @@ describe("normalizeHookEvent", () => {
   it("carries the session start source", () => {
     const r = normalize({ ...fx.sessionStart(), source: "compact" });
     expect(r.ok && r.event.source).toBe("compact");
+  });
+
+  it("extracts task context from prompts, tool inputs and assistant messages", () => {
+    const prompt = normalize({ ...fx.userPromptSubmit(), prompt: "Drop the legacy_users table and rewrite the migration" });
+    expect(prompt.ok && prompt.event.taskKind).toBe("prompt");
+    expect(prompt.ok && prompt.event.taskText).toBe("Drop the legacy_users table and rewrite the migration");
+    expect(prompt.ok && prompt.event.riskHits[0]!.level).toBe("critical");
+
+    const bash = normalize({ ...fx.permissionRequest(), tool_input: { command: "psql -c 'DROP TABLE legacy_users'", description: "Drop table" } });
+    expect(bash.ok && bash.event.taskKind).toBe("action");
+    expect(bash.ok && bash.event.taskText).toBe("Bash: psql -c 'DROP TABLE legacy_users'");
+    expect(bash.ok && bash.event.riskHits[0]!.level).toBe("critical");
+
+    const write = normalize({ ...fx.preToolUse(), tool_name: "Write", tool_input: { file_path: "/home/dev/Projects/my-app/src/db/migrate.ts", content: "SECRET" } });
+    expect(write.ok && write.event.taskText).toBe("Write: src/db/migrate.ts");
+    expect(JSON.stringify(write)).not.toContain("SECRET");
+
+    const stop = normalize(fx.stop(fx.SESSION_A, "I will now run the migration against production."));
+    expect(stop.ok && stop.event.taskKind).toBe("narration");
+    expect(stop.ok && stop.event.riskHits[0]!.level).toBe("critical");
+
+    const start = normalize(fx.sessionStart());
+    expect(start.ok && start.event.taskKind).toBeNull();
+  });
+
+  it("bounds and redacts task text", () => {
+    const r = normalize({ ...fx.userPromptSubmit(), prompt: "token=abcdefghijklmnop " + "x".repeat(1000) });
+    expect(r.ok && r.event.taskText!.length).toBeLessThanOrEqual(300);
+    expect(r.ok && r.event.taskText).toContain("[redacted]");
+    expect(r.ok && r.event.summary).toBe("Prompt submitted");
   });
 
   it("produces identical dedupe keys for identical events and different keys otherwise", () => {

@@ -19,6 +19,7 @@ export interface ReceiverConfig {
   retentionMs: number;
   maxSessions: number;
   allowNoToken: boolean;
+  captureTaskContext: boolean;
   logLevel: LogLevel;
 }
 
@@ -72,6 +73,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env, cwd: string = p
     retentionMs: intFromEnv("RETENTION_DAYS", 7, 1, 365) * 24 * 60 * 60_000,
     maxSessions: intFromEnv("MAX_SESSIONS", 1000, 10, 100_000),
     allowNoToken: env.ATTENTION_ALLOW_NO_TOKEN === "1",
+    captureTaskContext: env.CAPTURE_TASK_CONTEXT !== "0",
     logLevel: parseLogLevel(env.LOG_LEVEL),
   };
 }

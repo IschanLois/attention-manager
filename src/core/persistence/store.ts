@@ -39,7 +39,17 @@ CREATE TABLE IF NOT EXISTS sessions (
   ended_at TEXT,
   recent_failure_times TEXT NOT NULL DEFAULT '[]',
   pending_permission_tool_use_id TEXT,
-  event_seq INTEGER NOT NULL DEFAULT 0
+  event_seq INTEGER NOT NULL DEFAULT 0,
+  task_summary TEXT,
+  recent_actions TEXT NOT NULL DEFAULT '[]',
+  last_narration TEXT,
+  task_rule_severity TEXT NOT NULL DEFAULT 'none',
+  task_severity TEXT NOT NULL DEFAULT 'none',
+  task_severity_source TEXT NOT NULL DEFAULT 'rule',
+  task_severity_reason TEXT,
+  task_severity_evidence TEXT NOT NULL DEFAULT '[]',
+  task_severity_confidence REAL,
+  task_classified_at TEXT
 );
 CREATE INDEX IF NOT EXISTS sessions_last_seen ON sessions(last_seen_at);
 CREATE TABLE IF NOT EXISTS session_events (
@@ -72,6 +82,16 @@ interface SessionRow {
   recent_failure_times: string;
   pending_permission_tool_use_id: string | null;
   event_seq: number | null;
+  task_summary: string | null;
+  recent_actions: string | null;
+  last_narration: string | null;
+  task_rule_severity: string | null;
+  task_severity: string | null;
+  task_severity_source: string | null;
+  task_severity_reason: string | null;
+  task_severity_evidence: string | null;
+  task_severity_confidence: number | null;
+  task_classified_at: string | null;
 }
 
 interface EventRow {
@@ -111,6 +131,16 @@ function rowToSession(row: SessionRow): Session {
     recentFailureTimes: parseStringArray(row.recent_failure_times),
     pendingPermissionToolUseId: row.pending_permission_tool_use_id,
     eventSeq: Number(row.event_seq ?? 0),
+    taskSummary: row.task_summary ?? null,
+    recentActions: parseStringArray(row.recent_actions ?? "[]"),
+    lastNarration: row.last_narration ?? null,
+    taskRuleSeverity: (row.task_rule_severity ?? "none") as Priority,
+    taskSeverity: (row.task_severity ?? "none") as Priority,
+    taskSeveritySource: (row.task_severity_source ?? "rule") as ClassificationSource,
+    taskSeverityReason: row.task_severity_reason ?? null,
+    taskSeverityEvidence: parseStringArray(row.task_severity_evidence ?? "[]"),
+    taskSeverityConfidence: row.task_severity_confidence ?? null,
+    taskClassifiedAt: row.task_classified_at ?? null,
   };
 }
 
@@ -137,18 +167,35 @@ export function openStore(options: StoreOptions): Store {
     }
   }
   db.exec(SCHEMA);
-  try {
-    db.exec("ALTER TABLE sessions ADD COLUMN event_seq INTEGER NOT NULL DEFAULT 0");
-  } catch {
-    // column already exists
+  const migrations = [
+    "ALTER TABLE sessions ADD COLUMN event_seq INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE sessions ADD COLUMN task_summary TEXT",
+    "ALTER TABLE sessions ADD COLUMN recent_actions TEXT NOT NULL DEFAULT '[]'",
+    "ALTER TABLE sessions ADD COLUMN last_narration TEXT",
+    "ALTER TABLE sessions ADD COLUMN task_rule_severity TEXT NOT NULL DEFAULT 'none'",
+    "ALTER TABLE sessions ADD COLUMN task_severity TEXT NOT NULL DEFAULT 'none'",
+    "ALTER TABLE sessions ADD COLUMN task_severity_source TEXT NOT NULL DEFAULT 'rule'",
+    "ALTER TABLE sessions ADD COLUMN task_severity_reason TEXT",
+    "ALTER TABLE sessions ADD COLUMN task_severity_evidence TEXT NOT NULL DEFAULT '[]'",
+    "ALTER TABLE sessions ADD COLUMN task_severity_confidence REAL",
+    "ALTER TABLE sessions ADD COLUMN task_classified_at TEXT",
+  ];
+  for (const statement of migrations) {
+    try {
+      db.exec(statement);
+    } catch {
+      // column already exists
+    }
   }
 
   const upsert = db.prepare(`
     INSERT INTO sessions (
       session_id, label, started_at, last_seen_at, last_event_type, status, priority, attention_reason,
       classification_confidence, classification_source, classified_at, classification_evidence,
-      classification_error, ended_at, recent_failure_times, pending_permission_tool_use_id, event_seq
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      classification_error, ended_at, recent_failure_times, pending_permission_tool_use_id, event_seq,
+      task_summary, recent_actions, last_narration, task_rule_severity, task_severity, task_severity_source,
+      task_severity_reason, task_severity_evidence, task_severity_confidence, task_classified_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(session_id) DO UPDATE SET
       label = excluded.label, started_at = excluded.started_at, last_seen_at = excluded.last_seen_at,
       last_event_type = excluded.last_event_type, status = excluded.status, priority = excluded.priority,
@@ -156,7 +203,12 @@ export function openStore(options: StoreOptions): Store {
       classification_source = excluded.classification_source, classified_at = excluded.classified_at,
       classification_evidence = excluded.classification_evidence, classification_error = excluded.classification_error,
       ended_at = excluded.ended_at, recent_failure_times = excluded.recent_failure_times,
-      pending_permission_tool_use_id = excluded.pending_permission_tool_use_id, event_seq = excluded.event_seq
+      pending_permission_tool_use_id = excluded.pending_permission_tool_use_id, event_seq = excluded.event_seq,
+      task_summary = excluded.task_summary, recent_actions = excluded.recent_actions, last_narration = excluded.last_narration,
+      task_rule_severity = excluded.task_rule_severity, task_severity = excluded.task_severity,
+      task_severity_source = excluded.task_severity_source, task_severity_reason = excluded.task_severity_reason,
+      task_severity_evidence = excluded.task_severity_evidence, task_severity_confidence = excluded.task_severity_confidence,
+      task_classified_at = excluded.task_classified_at
   `);
   const selectOne = db.prepare("SELECT * FROM sessions WHERE session_id = ?");
   const selectAll = db.prepare("SELECT * FROM sessions ORDER BY last_seen_at DESC");
@@ -182,6 +234,8 @@ export function openStore(options: StoreOptions): Store {
         s.sessionId, s.label, s.startedAt, s.lastSeenAt, s.lastEventType, s.status, s.priority, s.attentionReason,
         s.classificationConfidence, s.classificationSource, s.classifiedAt, JSON.stringify(s.classificationEvidence),
         s.classificationError, s.endedAt, JSON.stringify(s.recentFailureTimes), s.pendingPermissionToolUseId, s.eventSeq,
+        s.taskSummary, JSON.stringify(s.recentActions), s.lastNarration, s.taskRuleSeverity, s.taskSeverity, s.taskSeveritySource,
+        s.taskSeverityReason, JSON.stringify(s.taskSeverityEvidence), s.taskSeverityConfidence, s.taskClassifiedAt,
       );
     },
     getSession(sessionId) {

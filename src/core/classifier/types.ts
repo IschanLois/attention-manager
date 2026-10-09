@@ -1,4 +1,4 @@
-import type { Classification, EventType } from "../schemas.ts";
+import type { Classification, EventType, Priority } from "../schemas.ts";
 
 export interface ClassifierInput {
   eventType: EventType;
@@ -6,6 +6,13 @@ export interface ClassifierInput {
   toolName: string | null;
   text: string;
   recentFailures: number;
+}
+
+export interface TaskClassifierInput {
+  taskSummary: string | null;
+  recentActions: string[];
+  narration: string | null;
+  ruleSeverity: Priority;
 }
 
 export interface ModelHealth {
@@ -18,6 +25,7 @@ export interface ModelHealth {
 
 export interface ClassifierPort {
   classify(input: ClassifierInput): Promise<Classification | null>;
+  classifyTask?(input: TaskClassifierInput): Promise<Classification | null>;
   health(): Promise<ModelHealth>;
   warmUp?(): Promise<void>;
 }

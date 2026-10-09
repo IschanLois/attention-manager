@@ -90,6 +90,15 @@ export type ClassificationSource = (typeof CLASSIFICATION_SOURCES)[number];
 
 export const SUMMARY_MAX_LENGTH = 160;
 export const CLASSIFIER_TEXT_MAX_LENGTH = 400;
+export const TASK_TEXT_MAX_LENGTH = 300;
+export const RECENT_ACTIONS_LIMIT = 5;
+
+export type TaskKind = "prompt" | "action" | "narration";
+
+export interface RiskHit {
+  level: Priority;
+  match: string;
+}
 
 export interface NormalizedEvent {
   sessionId: string;
@@ -105,6 +114,9 @@ export interface NormalizedEvent {
   notificationType: string | null;
   isInterrupt: boolean;
   classifierText: string | null;
+  taskKind: TaskKind | null;
+  taskText: string | null;
+  riskHits: RiskHit[];
 }
 
 export interface Session {
@@ -125,6 +137,16 @@ export interface Session {
   recentFailureTimes: string[];
   pendingPermissionToolUseId: string | null;
   eventSeq: number;
+  taskSummary: string | null;
+  recentActions: string[];
+  lastNarration: string | null;
+  taskRuleSeverity: Priority;
+  taskSeverity: Priority;
+  taskSeveritySource: ClassificationSource;
+  taskSeverityReason: string | null;
+  taskSeverityEvidence: string[];
+  taskSeverityConfidence: number | null;
+  taskClassifiedAt: string | null;
 }
 
 export interface StoredEvent {

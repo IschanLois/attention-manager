@@ -108,7 +108,8 @@ describe("receiver", () => {
     const body = await res.json();
     expect(body.session.sessionId).toBe(fx.SESSION_A);
     expect(body.events.map((e: { eventType: string }) => e.eventType)).toEqual(["tool_start", "prompt", "session_start"]);
-    expect(JSON.stringify(body)).not.toContain("node hello.js");
+    expect(JSON.stringify(body.events)).not.toContain("node hello.js");
+    expect(JSON.stringify(body)).not.toContain("/home/dev");
   });
 
   it("returns 404 for unknown sessions and rejects malformed ids and bad encoding", async () => {
@@ -448,6 +449,76 @@ describe("receiver", () => {
       expect(s.classificationEvidence).toEqual(["auth"]);
     } finally {
       await smart.close();
+    }
+  });
+
+  it("derives task severity from prompts and commands and escalates risky permission requests", async () => {
+    await post(fx.sessionStart());
+    await post({ ...fx.userPromptSubmit(), prompt: "Fix the typo in the README" });
+    let s = (await sessions()).sessions[0]!;
+    expect(s.taskSummary).toBe("Fix the typo in the README");
+    expect(s.taskSeverity).toBe("low");
+    await post({ ...fx.preToolUse(fx.SESSION_A, "t1"), tool_input: { command: "psql -c 'DROP TABLE legacy_users'" } });
+    await post({ ...fx.permissionRequest(fx.SESSION_A, "t1"), tool_input: { command: "psql -c 'DROP TABLE legacy_users'" } });
+    s = (await sessions()).sessions[0]!;
+    expect(s.taskSeverity).toBe("critical");
+    expect(s.priority).toBe("critical");
+    expect(s.recentActions).toEqual(["Bash: psql -c 'DROP TABLE legacy_users'"]);
+    const detail = await (await fetch(`${base}/api/sessions/${fx.SESSION_A}`)).json();
+    expect(detail.session.taskSeveritySource).toBe("rule");
+  });
+
+  it("applies the model's task severity above the keyword floor", async () => {
+    const smart = await createReceiver({
+      host: "127.0.0.1", port: 0, databasePath: ":memory:", ingestToken: TOKEN, maxBodyBytes: 4096,
+      eventHistoryLimit: 20, staleAfterMs: 600_000, dedupeWindowMs: 0,
+      rateLimit: { perSessionPerMinute: 60, globalPerMinute: 200 }, logLevel: "error",
+      classifier: {
+        async classify() { return null; },
+        async classifyTask() { return { needs_attention: true, priority: "high", reason: "Changes billing code.", evidence: ["billing"], confidence: 0.66 }; },
+        async health() { return { reachable: true, modelInstalled: true, model: "m", url: "u", error: null }; },
+      },
+    });
+    try {
+      const url = `http://127.0.0.1:${smart.port}`;
+      const send = (body: unknown) => fetch(`${url}/api/events`, {
+        method: "POST", headers: { "content-type": "application/json", "x-attention-token": TOKEN }, body: JSON.stringify(body),
+      });
+      await send(fx.sessionStart());
+      await send({ ...fx.userPromptSubmit(), prompt: "Refactor the invoice totals helper" });
+      await new Promise((r) => setTimeout(r, 50));
+      const s = (await (await fetch(`${url}/api/sessions`)).json()).sessions[0];
+      expect(s.taskSeverity).toBe("high");
+      expect(s.taskSeveritySource).toBe("ai");
+      expect(s.taskSeverityReason).toBe("Changes billing code.");
+      expect(s.taskSeverityConfidence).toBe(0.66);
+    } finally {
+      await smart.close();
+    }
+  });
+
+  it("stores no task context when capture is disabled", async () => {
+    const quiet = await createReceiver({
+      host: "127.0.0.1", port: 0, databasePath: ":memory:", ingestToken: TOKEN, maxBodyBytes: 4096,
+      eventHistoryLimit: 20, staleAfterMs: 600_000, dedupeWindowMs: 0, captureTaskContext: false,
+      rateLimit: { perSessionPerMinute: 60, globalPerMinute: 200 }, classifier, logLevel: "error",
+    });
+    try {
+      const url = `http://127.0.0.1:${quiet.port}`;
+      const send = (body: unknown) => fetch(`${url}/api/events`, {
+        method: "POST", headers: { "content-type": "application/json", "x-attention-token": TOKEN }, body: JSON.stringify(body),
+      });
+      await send(fx.sessionStart());
+      await send({ ...fx.userPromptSubmit(), prompt: "Drop the legacy_users table" });
+      await send({ ...fx.permissionRequest(fx.SESSION_A, "t1"), tool_input: { command: "psql -c 'DROP TABLE legacy_users'" } });
+      const s = (await (await fetch(`${url}/api/sessions`)).json()).sessions[0];
+      expect(s.taskSummary).toBeNull();
+      expect(s.recentActions).toEqual([]);
+      expect(s.taskSeverity).toBe("none");
+      expect(s.priority).toBe("high");
+      expect(JSON.stringify(s)).not.toContain("legacy_users");
+    } finally {
+      await quiet.close();
     }
   });
 

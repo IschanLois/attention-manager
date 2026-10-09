@@ -15,11 +15,21 @@ if [ -r "$TOKEN_FILE" ]; then
   TOKEN="$(head -c 256 "$TOKEN_FILE" | tr -d '\r\n')"
 fi
 
-# The receiver never reads prompt text, tool inputs/outputs or transcript paths,
-# so drop them before they cross the socket when jq is available.
+# Keep only what the receiver uses for task context: the command, path and
+# description of a tool call, a prompt snippet and an assistant message snippet.
+# Tool outputs, file contents and transcript paths never cross the socket.
 minimize() {
   if command -v jq >/dev/null 2>&1; then
-    jq -c 'del(.tool_input, .tool_response, .prompt, .transcript_path)' 2>/dev/null || cat
+    jq -c '
+      del(.tool_response, .transcript_path)
+      | if (.tool_input | type) == "object" then
+          .tool_input |= { command: (.command // null | if type == "string" then .[0:400] else null end),
+                           file_path: (.file_path // .path // .notebook_path // null),
+                           description: (.description // null | if type == "string" then .[0:200] else null end) }
+        else del(.tool_input) end
+      | if (.prompt | type) == "string" then .prompt |= .[0:400] else . end
+      | if (.last_assistant_message | type) == "string" then .last_assistant_message |= .[0:600] else . end
+    ' 2>/dev/null || cat
   else
     cat
   fi

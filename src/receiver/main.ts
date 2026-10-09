@@ -36,6 +36,7 @@ const receiver = await createReceiver({
   rateLimit: config.rateLimit,
   maxSessions: config.maxSessions,
   retentionMs: config.retentionMs,
+  captureTaskContext: config.captureTaskContext,
   classifier,
   logLevel: config.logLevel,
   logger,

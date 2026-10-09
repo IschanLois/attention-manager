@@ -2,9 +2,11 @@ import { describe, expect, it } from "vitest";
 import { normalizeHookEvent } from "@/core/events/normalize";
 import {
   applyClassification,
+  applyTaskClassification,
   isStale,
   reduceSession,
   shouldClassify,
+  shouldClassifyTask,
   sortSessions,
 } from "@/core/sessions/state-machine";
 import type { NormalizedEvent, Session } from "@/core/schemas";
@@ -223,6 +225,117 @@ describe("reduceSession: attention rules", () => {
     expect(s.status).toBe("completed");
     expect(s.priority).toBe("medium");
     expect(s.attentionReason).toMatch(/question/i);
+  });
+});
+
+describe("task severity", () => {
+  const ddlPrompt = () => ({ ...fx.userPromptSubmit(), prompt: "Drop the legacy_users table and rewrite the migration" });
+  const docsPrompt = () => ({ ...fx.userPromptSubmit(), prompt: "Fix the typo in the README" });
+
+  it("starts with no task context", () => {
+    const s = reduceSession(null, ev(fx.sessionStart()));
+    expect(s.taskSummary).toBeNull();
+    expect(s.taskSeverity).toBe("none");
+    expect(s.recentActions).toEqual([]);
+  });
+
+  it("sets the task summary and keyword severity on a prompt and resets previous context", () => {
+    const s = run([ev(fx.sessionStart()), ev(ddlPrompt())]);
+    expect(s.taskSummary).toBe("Drop the legacy_users table and rewrite the migration");
+    expect(s.taskSeverity).toBe("critical");
+    expect(s.taskRuleSeverity).toBe("critical");
+    expect(s.taskSeveritySource).toBe("rule");
+    expect(s.taskSeverityReason).toMatch(/Matched/);
+    const next = reduceSession({ ...s, recentActions: ["Bash: x"], lastNarration: "y" }, ev(docsPrompt()));
+    expect(next.taskSeverity).toBe("low");
+    expect(next.recentActions).toEqual([]);
+    expect(next.lastNarration).toBeNull();
+  });
+
+  it("records recent actions and raises severity from risky commands", () => {
+    const base = run([ev(fx.sessionStart()), ev(docsPrompt())]);
+    const after = run([
+      ev({ ...fx.preToolUse(fx.SESSION_A, "t1"), tool_input: { command: "cat README.md" } }),
+      ev({ ...fx.preToolUse(fx.SESSION_A, "t2"), tool_input: { command: "git push origin main --force" } }),
+    ], base);
+    expect(after.recentActions).toEqual(["Bash: cat README.md", "Bash: git push origin main --force"]);
+    expect(after.taskSeverity).toBe("critical");
+    expect(after.taskSeverityReason).toContain("--force");
+  });
+
+  it("keeps at most five recent actions", () => {
+    let s = run([ev(fx.sessionStart()), ev(docsPrompt())]);
+    for (let i = 0; i < 8; i++) s = reduceSession(s, ev({ ...fx.preToolUse(fx.SESSION_A, `t${i}`), tool_input: { command: `echo ${i}` } }));
+    expect(s.recentActions).toHaveLength(5);
+    expect(s.recentActions[4]).toBe("Bash: echo 7");
+  });
+
+  it("records the assistant narration and raises severity from it", () => {
+    const s = run([ev(fx.sessionStart()), ev(docsPrompt()), ev(fx.stop(fx.SESSION_A, "Next I will run terraform apply for the cluster."))]);
+    expect(s.lastNarration).toContain("terraform apply");
+    expect(s.taskSeverity).toBe("critical");
+  });
+
+  it("escalates a permission request to critical attention when the command or task is critical-risk", () => {
+    const risky = run([ev(fx.sessionStart(fx.SESSION_B)), ev({ ...fx.permissionRequest(), tool_input: { command: "psql -c 'DROP TABLE legacy_users'" } })]);
+    expect(risky.status).toBe("needs_attention");
+    expect(risky.priority).toBe("critical");
+    expect(risky.attentionReason).toContain("DROP TABLE");
+    const plain = run([ev(fx.sessionStart(fx.SESSION_B)), ev({ ...fx.permissionRequest(), tool_input: { command: "touch probe-file.txt" } })]);
+    expect(plain.priority).toBe("high");
+    const criticalTask = run([ev(fx.sessionStart(fx.SESSION_B)), ev({ ...fx.userPromptSubmit(fx.SESSION_B), prompt: "deploy the api to production" }), ev({ ...fx.permissionRequest(), tool_input: { command: "pnpm run deploy" } })]);
+    expect(criticalTask.priority).toBe("critical");
+  });
+
+  it("does not let a session restart wipe the task context", () => {
+    const s = run([ev(fx.sessionStart()), ev(ddlPrompt()), ev({ ...fx.sessionStart(), source: "resume" })]);
+    expect(s.taskSummary).toContain("legacy_users");
+    expect(s.taskSeverity).toBe("critical");
+  });
+
+  it("asks the model to rate the task on prompts and finished turns only", () => {
+    const start = ev(fx.sessionStart());
+    const s0 = reduceSession(null, start);
+    expect(shouldClassifyTask(s0, start)).toBe(false);
+    const p = ev(docsPrompt());
+    const s1 = reduceSession(s0, p);
+    expect(shouldClassifyTask(s1, p)).toBe(true);
+    const t = ev({ ...fx.preToolUse(), tool_input: { command: "ls" } });
+    expect(shouldClassifyTask(reduceSession(s1, t), t)).toBe(false);
+    const stop = ev(fx.stop(fx.SESSION_A, "Done, I updated the README."));
+    expect(shouldClassifyTask(reduceSession(s1, stop), stop)).toBe(true);
+    const end = ev(fx.sessionEnd());
+    expect(shouldClassifyTask(reduceSession(s1, end), end)).toBe(false);
+  });
+
+  it("applies a model severity above the keyword floor but never below it", () => {
+    const p = ev({ ...fx.userPromptSubmit(), prompt: "rewrite the authentication middleware" });
+    const s = run([ev(fx.sessionStart()), p]);
+    expect(s.taskSeverity).toBe("high");
+    const raised = applyTaskClassification(s, p, { needs_attention: true, priority: "critical", reason: "Touches login for all users.", evidence: ["authentication"], confidence: 0.7 }, "2026-10-09T09:00:00.000Z", s.eventSeq);
+    expect(raised.taskSeverity).toBe("critical");
+    expect(raised.taskSeveritySource).toBe("ai");
+    expect(raised.taskSeverityReason).toBe("Touches login for all users.");
+    expect(raised.taskSeverityConfidence).toBe(0.7);
+    expect(raised.taskRuleSeverity).toBe("high");
+    const lowered = applyTaskClassification(s, p, { needs_attention: false, priority: "none", reason: "Trivial.", evidence: [], confidence: 0.9 }, "2026-10-09T09:00:00.000Z", s.eventSeq);
+    expect(lowered.taskSeverity).toBe("high");
+    expect(lowered.taskSeveritySource).toBe("ai");
+    const stale = applyTaskClassification(s, p, { needs_attention: true, priority: "critical", reason: "x", evidence: [], confidence: 0.9 }, "2026-10-09T09:00:00.000Z", s.eventSeq - 1);
+    expect(stale).toBe(s);
+  });
+
+  it("sorts by task severity after attention priority", () => {
+    const now = Date.parse("2026-10-09T10:00:00.000Z");
+    const t = (minAgo: number) => new Date(now - minAgo * 60_000).toISOString();
+    const base = reduceSession(null, ev(fx.sessionStart()));
+    const mk = (id: string, over: Partial<Session>): Session => ({ ...base, sessionId: id, ...over });
+    const ids = sortSessions([
+      mk("working-low", { status: "working", priority: "none", taskSeverity: "low", lastSeenAt: t(1) }),
+      mk("working-critical", { status: "working", priority: "none", taskSeverity: "critical", lastSeenAt: t(5) }),
+      mk("attention", { status: "needs_attention", priority: "high", taskSeverity: "none", lastSeenAt: t(9) }),
+    ], now, 600_000).map((s) => s.sessionId);
+    expect(ids).toEqual(["attention", "working-critical", "working-low"]);
   });
 });
 

@@ -1,6 +1,7 @@
 import { classificationJsonSchema } from "../schemas.ts";
-import { buildMessages, parseModelOutput } from "./contract.ts";
-import { ClassifierError, type ClassifierInput, type ClassifierPort, type ModelHealth } from "./types.ts";
+import { buildMessages, buildTaskMessages, parseModelOutput } from "./contract.ts";
+import { ClassifierError, type ClassifierInput, type ClassifierPort, type ModelHealth, type TaskClassifierInput } from "./types.ts";
+import type { ChatMessage } from "./contract.ts";
 
 export interface OllamaOptions {
   url: string;
@@ -68,7 +69,7 @@ export function createOllamaClassifier(options: OllamaOptions): ClassifierPort {
     return supportsThinking;
   }
 
-  async function chat(input: ClassifierInput, timeoutMs: number) {
+  async function chat(messages: ChatMessage[], timeoutMs: number) {
       const thinking = await detectThinking();
       const body = {
         model: options.model,
@@ -76,7 +77,7 @@ export function createOllamaClassifier(options: OllamaOptions): ClassifierPort {
         keep_alive: options.keepAlive ?? "30m",
         format: classificationJsonSchema,
         options: { temperature: 0, num_predict: 200, num_ctx: 2048, seed: 7 },
-        messages: buildMessages(input),
+        messages,
         ...(thinking ? { think: false } : {}),
       };
       const res = await request("/api/chat", {
@@ -104,11 +105,15 @@ export function createOllamaClassifier(options: OllamaOptions): ClassifierPort {
 
   return {
     classify(input: ClassifierInput) {
-      return chat(input, options.timeoutMs);
+      return chat(buildMessages(input), options.timeoutMs);
+    },
+
+    classifyTask(input: TaskClassifierInput) {
+      return chat(buildTaskMessages(input), options.timeoutMs);
     },
 
     async warmUp() {
-      await chat({ eventType: "notification", notificationType: null, toolName: null, text: "warm up", recentFailures: 0 }, options.warmUpTimeoutMs ?? 60_000);
+      await chat(buildMessages({ eventType: "notification", notificationType: null, toolName: null, text: "warm up", recentFailures: 0 }), options.warmUpTimeoutMs ?? 60_000);
     },
 
     async health(): Promise<ModelHealth> {

@@ -4,11 +4,14 @@ import {
   CLASSIFIER_TEXT_MAX_LENGTH,
   hookEventSchema,
   SUMMARY_MAX_LENGTH,
+  TASK_TEXT_MAX_LENGTH,
   type EventType,
   type HookEvent,
   type HookEventName,
   type NormalizedEvent,
+  type TaskKind,
 } from "../schemas.ts";
+import { assessRisk } from "../sessions/risk.ts";
 
 export type NormalizeResult =
   | { ok: true; event: NormalizedEvent }
@@ -110,6 +113,44 @@ function summarize(event: HookEvent, type: EventType): { summary: string; classi
   }
 }
 
+function stringField(input: unknown, key: string): string | null {
+  if (!input || typeof input !== "object") return null;
+  const value = (input as Record<string, unknown>)[key];
+  return typeof value === "string" && value.length > 0 ? value : null;
+}
+
+function shortPath(path: string, cwd: string | undefined): string {
+  if (cwd && path.startsWith(cwd.replace(/\/+$/, "") + "/")) return path.slice(cwd.replace(/\/+$/, "").length + 1);
+  return basename(path);
+}
+
+// The task context is what the agent was asked, what it runs, and what it says it is doing.
+// Only these minimal fields are kept; tool outputs, file contents and transcripts never are.
+function taskContext(event: HookEvent, type: EventType): { taskKind: TaskKind | null; taskText: string | null } {
+  switch (type) {
+    case "prompt": {
+      const text = sanitizeText(event.prompt, TASK_TEXT_MAX_LENGTH);
+      return { taskKind: text ? "prompt" : null, taskText: text || null };
+    }
+    case "tool_start":
+    case "permission_request": {
+      const tool = toolLabel(event);
+      const command = stringField(event.tool_input, "command");
+      const filePath = stringField(event.tool_input, "file_path") ?? stringField(event.tool_input, "path") ?? stringField(event.tool_input, "notebook_path");
+      const description = stringField(event.tool_input, "description");
+      const detail = command ?? (filePath ? shortPath(filePath, event.cwd) : null) ?? description;
+      const text = sanitizeText(detail ? `${tool}: ${detail}` : tool, TASK_TEXT_MAX_LENGTH);
+      return { taskKind: "action", taskText: text || null };
+    }
+    case "turn_complete": {
+      const text = sanitizeText(event.last_assistant_message, TASK_TEXT_MAX_LENGTH);
+      return { taskKind: text ? "narration" : null, taskText: text || null };
+    }
+    default:
+      return { taskKind: null, taskText: null };
+  }
+}
+
 function dedupeKey(parts: Array<string | null>): string {
   return createHash("sha256").update(parts.map((p) => p ?? "").join("|")).digest("hex").slice(0, 32);
 }
@@ -131,6 +172,7 @@ export function normalizeHookEvent(raw: unknown, receivedAt: string): NormalizeR
   const promptId = event.prompt_id ? sanitizeIdentifier(event.prompt_id, 128) || null : null;
   const source = type === "session_start" ? sanitizeIdentifier(event.source, 32) || null : null;
   const textHash = classifierText ? createHash("sha256").update(classifierText).digest("hex").slice(0, 16) : null;
+  const { taskKind, taskText } = taskContext(event, type);
 
   return {
     ok: true,
@@ -148,6 +190,9 @@ export function normalizeHookEvent(raw: unknown, receivedAt: string): NormalizeR
       notificationType,
       isInterrupt: event.is_interrupt === true,
       classifierText,
+      taskKind,
+      taskText,
+      riskHits: assessRisk(taskText),
     },
   };
 }

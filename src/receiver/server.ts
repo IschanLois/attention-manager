@@ -24,6 +24,7 @@ export interface ReceiverOptions {
   retentionMs?: number;
   maxSseClients?: number;
   retryDelayMs?: number;
+  captureTaskContext?: boolean;
   classifier: ClassifierPort;
   logLevel: LogLevel;
   logger?: Logger;
@@ -145,6 +146,7 @@ export async function createReceiver(options: ReceiverOptions): Promise<Receiver
     dedupeWindowMs: options.dedupeWindowMs,
     maxSessions: options.maxSessions,
     retryDelayMs: options.retryDelayMs,
+    captureTaskContext: options.captureTaskContext,
     onSessionChanged: (session: Session) => {
       hub.broadcast("session", toView(session, Date.now(), options.staleAfterMs));
     },
