@@ -4,20 +4,14 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { createOllamaClassifier } from "../src/core/classifier/ollama.ts";
-import type { ClassifierInput, TaskClassifierInput } from "../src/core/classifier/types.ts";
-
-interface EvalCase {
-  id: string;
-  input: ClassifierInput;
-  expect: { needs_attention: boolean; priority: string[] };
-}
+import { BENCHMARK_CASES as cases } from "../src/core/classifier/benchmark-cases.ts";
+import type { TaskClassifierInput } from "../src/core/classifier/types.ts";
 
 const url = (process.env.OLLAMA_URL ?? "http://127.0.0.1:11434").replace(/\/+$/, "");
 const args = process.argv.slice(2);
 const taskMode = args.includes("--task");
 const modelArgs = args.filter((a) => a !== "--task");
 const models = modelArgs.length ? modelArgs : [process.env.OLLAMA_MODEL ?? "qwen3:1.7b"];
-const cases = JSON.parse(readFileSync(resolve(import.meta.dirname, "../tests/fixtures/classifier-cases.json"), "utf8")) as EvalCase[];
 
 interface TaskCase {
   id: string;

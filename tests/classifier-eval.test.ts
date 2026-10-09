@@ -3,7 +3,7 @@ import { createOllamaClassifier } from "@/core/classifier/ollama";
 import type { ClassifierInput, ClassifierPort } from "@/core/classifier/types";
 import { normalizeHookEvent } from "@/core/events/normalize";
 import { reduceSession, shouldClassify } from "@/core/sessions/state-machine";
-import cases from "./fixtures/classifier-cases.json";
+import { BENCHMARK_CASES as cases } from "@/core/classifier/benchmark-cases";
 import * as fx from "./fixtures/hook-events";
 
 interface EvalCase {

@@ -1,5 +1,8 @@
 import * as clack from "@clack/prompts";
 import { EXIT_ERROR, EXIT_OK } from "../args.ts";
+import { benchmarkModel, type BenchmarkResult } from "../../core/classifier/benchmark.ts";
+import { BENCHMARK_CASES } from "../../core/classifier/benchmark-cases.ts";
+import { createOllamaClassifier, listInstalledModels } from "../../core/classifier/ollama.ts";
 import { loadCliConfig, saveCliConfig } from "../config.ts";
 import { focusContext, type CliContext } from "../context.ts";
 import { currentShellTerminal } from "../doctor.ts";
@@ -55,6 +58,19 @@ async function probeOllama(url: string, model: string): Promise<{ reachable: boo
   }
 }
 
+async function benchmarkModels(url: string, onModel: (model: string) => void): Promise<{ reachable: boolean; results: BenchmarkResult[] }> {
+  const installed = await listInstalledModels(url);
+  if (!installed) return { reachable: false, results: [] };
+  const results: BenchmarkResult[] = [];
+  for (const model of installed) {
+    onModel(model);
+    const classifier = createOllamaClassifier({ url, model, timeoutMs: 15_000 });
+    await classifier.warmUp?.().catch(() => undefined);
+    results.push(await benchmarkModel(model, classifier, BENCHMARK_CASES));
+  }
+  return { reachable: true, results };
+}
+
 export function reloadContext(ctx: CliContext): CliContext {
   const loaded = loadCliConfig(ctx.paths.configFile);
   return loaded.ok ? { ...ctx, config: loaded.config, configExists: loaded.exists, configError: undefined } : ctx;
@@ -81,6 +97,7 @@ export async function runSetupCommand(ctx: CliContext, options: { yes: boolean }
       },
       ensureToken: () => void ensureToken(ctx.paths),
       probeOllama,
+      benchmarkModels,
       terminal: {
         backends: planFocus(shell, focus).map((a) => a.id),
         wayland: ctx.platform === "linux" && isWayland(ctx.env),

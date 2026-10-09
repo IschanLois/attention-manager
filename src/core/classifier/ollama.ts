@@ -26,6 +26,18 @@ function modelMatches(installed: string, wanted: string): boolean {
   return !wanted.includes(":") && installed === `${wanted}:latest`;
 }
 
+// Null when Ollama cannot be reached.
+export async function listInstalledModels(url: string, fetchImpl: typeof fetch = fetch): Promise<string[] | null> {
+  try {
+    const res = await fetchImpl(`${url.replace(/\/+$/, "")}/api/tags`, { signal: AbortSignal.timeout(3000) });
+    if (!res.ok) return null;
+    const tags = (await res.json()) as TagsResponse;
+    return (tags.models ?? []).map((m) => (typeof m.name === "string" ? m.name : "")).filter(Boolean);
+  } catch {
+    return null;
+  }
+}
+
 export function createOllamaClassifier(options: OllamaOptions): ClassifierPort {
   const fetchImpl = options.fetchImpl ?? fetch;
   const base = options.url.replace(/\/+$/, "");

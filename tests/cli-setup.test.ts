@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { configSchema, DEFAULT_CONFIG, type CliConfig } from "@/cli/config";
+import type { BenchmarkResult } from "@/core/classifier/benchmark";
 import { runSetup, type Prompter, type SetupDeps } from "@/cli/setup";
 
 type Answer = boolean | string | null;
@@ -50,6 +51,7 @@ function deps(overrides: Partial<SetupDeps> & { answers?: Answer[] } = {}) {
       calls.probes.push(`${url} ${model}`);
       return { reachable: true, modelInstalled: true };
     },
+    benchmarkModels: async () => ({ reachable: true, results: [] }),
     terminal: {
       backends: ["tmux", "x11"],
       wayland: false,
@@ -157,4 +159,49 @@ describe("runSetup", () => {
     expect(result).toEqual({ ok: false, cancelled: true });
     expect(calls.saved).toBeNull();
   });
+  describe("benchmark choice", () => {
+    const result = (model: string, hits: number, p50Ms: number): BenchmarkResult => ({ model, total: 10, attentionHits: hits, priorityHits: hits, invalid: 0, p50Ms });
+
+    it("saves the most accurate installed model that is fast enough on this device", async () => {
+      const { deps: d, calls, prompter } = deps({
+        answers: [true, "benchmark", false],
+        benchmarkModels: async () => ({ reachable: true, results: [result("qwen3:1.7b", 8, 900), result("qwen3:4b", 9, 2400), result("qwen3:8b", 10, 12000)] }),
+      });
+      await runSetup(d);
+      expect(calls.saved?.classifier).toEqual({ enabled: true, ollamaUrl: "http://127.0.0.1:11434", model: "qwen3:4b" });
+      expect(prompter.messages.join("\n")).toMatch(/qwen3:8b.*12\.0 s/s);
+    });
+
+    it("says so when no model answers fast enough and uses the fastest", async () => {
+      const { deps: d, calls, prompter } = deps({
+        answers: [true, "benchmark", false],
+        benchmarkModels: async () => ({ reachable: true, results: [result("qwen3:4b", 9, 8000), result("qwen3:1.7b", 7, 5000)] }),
+      });
+      await runSetup(d);
+      expect(calls.saved?.classifier.model).toBe("qwen3:1.7b");
+      expect(prompter.messages.join("\n")).toMatch(/slow for this device/);
+    });
+
+    it("keeps the default model and prints the pull command when nothing is installed", async () => {
+      const { deps: d, calls, prompter } = deps({ answers: [true, "benchmark", false], benchmarkModels: async () => ({ reachable: true, results: [] }) });
+      await runSetup(d);
+      expect(calls.saved?.classifier).toEqual({ enabled: true, ollamaUrl: "http://127.0.0.1:11434", model: "qwen3:1.7b" });
+      expect(prompter.messages.join("\n")).toMatch(/ollama pull qwen3:1\.7b/);
+    });
+
+    it("keeps AI enabled with the default model when Ollama is unreachable", async () => {
+      const { deps: d, calls, prompter } = deps({ answers: [true, "benchmark", false], benchmarkModels: async () => ({ reachable: false, results: [] }) });
+      await runSetup(d);
+      expect(calls.saved?.classifier.enabled).toBe(true);
+      expect(prompter.messages.join("\n")).toMatch(/not reachable/);
+    });
+
+    it("never benchmarks in --yes mode", async () => {
+      let ran = 0;
+      const { deps: d } = deps({ yes: true, benchmarkModels: async () => ((ran += 1), { reachable: true, results: [] }) });
+      await runSetup(d);
+      expect(ran).toBe(0);
+    });
+  });
+
 });
