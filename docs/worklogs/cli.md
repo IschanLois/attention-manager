@@ -143,6 +143,25 @@ Still to verify by hand (no access from this session):
 
 **Manual.** With Ollama running, trigger a model-classified attention reason; the row and the detail both read "AI confidence nn%".
 
+### Fix: wrap text on narrow terminals instead of truncating (`fix/tui-wrap-narrow`)
+
+**Purpose.** On small terminals the header, banners, filter bar, session reasons, detail lines, status line and footer were cut off with `…`, so counts, key hints and reasons were lost.
+
+**Changes.**
+- New `tui/layout.ts`: `wrapSegments` word-wraps coloured segments into lines with an optional continuation indent. `keep` segments (header counts, footer hints, table cells) only break when they are wider than a line, and `gap` segments (the `·` separators) are dropped where a line breaks. `windowRows` picks the rows around the selection that fit a line budget when rows have different heights.
+- `components.tsx`: the header, banners, filter bar, status line and footer are built as wrapped lines (`headerLines`, `bannerLines`, `filterLines`, `statusLines`, `footerLines`) and drawn with `TextLines`. Session rows wrap the risk badge, AI tag and reason under the reason column, or under the label when the reason column would be narrower than 30 characters. Detail lines, evidence, recent actions, events and the help overlay wrap, with a hanging indent after `→`, the event time and the key column.
+- `Screen.tsx`: the body height subtracts the wrapped chrome height instead of a fixed four lines. The stacked list height uses the wrapped row heights (`sessionListHeight`). The body and detail panes clip overflow at the bottom instead of letting Ink squash lines on top of each other.
+
+**Decisions.**
+- The column header row (`PRIORITY SESSION …`) still truncates, because a wrapped column header no longer lines up with its columns. Labels stay padded or cut to the label column width. The full label is in the detail.
+- The label column width now comes from the longest label among all visible sessions, not just the rows in the scroll window, because row heights depend on the layout and the window depends on row heights.
+- When the selected row is taller than the list pane, only its first lines are shown.
+- This replaces the earlier note that a critical-risk row at 80 columns truncates the reason after the AI tag. The reason now continues on the next line.
+
+**Tests.** `tui-layout`: word wrap, hard splits, kept units, dropped separators, continuation indent, styles across breaks, blank kept units, and windowing by row height. `tui-render`: at 40 columns the header and footer wrap with every line within the width, a long reason wraps inside 80 columns, detail evidence wraps at 50 columns, and an offline banner plus wrapped chrome still fits a 20-row terminal.
+
+**Manual.** Run `attention` and resize the terminal to about 45 by 20. The header and footer wrap onto extra lines, long reasons continue under the reason column (or under the label when narrow), and the footer stays on screen.
+
 ## Known limitations
 
 - **Wayland:** there is no generic window-focus API. Only tmux, screen, kitty, WezTerm, sway and Hyprland routes work there; GNOME and KDE get the manual hint.

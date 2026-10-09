@@ -1,7 +1,7 @@
 import { Box } from "ink";
 import type { ReactNode } from "react";
 import { isFiltering } from "../model/filters.ts";
-import { Banners, Connecting, Detail, Divider, EmptyState, FilterBar, Footer, Header, HelpOverlay, SessionList, StatusLine } from "./components.tsx";
+import { bannerLines, sessionListHeight, Connecting, Detail, Divider, EmptyState, filterLines, footerLines, headerLines, HelpOverlay, SessionList, statusLines, TextLines } from "./components.tsx";
 import { selectedSession, visibleSessions, type TuiState } from "./state.ts";
 import type { Theme } from "./theme.ts";
 
@@ -22,9 +22,13 @@ export interface ScreenProps {
 export function Screen({ state, now, width, height, theme, classifierEnabled }: ScreenProps) {
   const sessions = visibleSessions(state, now);
   const selected = selectedSession(state, now);
-  const offline = state.connection === "offline" || state.connection === "reconnecting";
-  const degraded = classifierEnabled && state.health !== null && (!state.health.model.reachable || !state.health.model.modelInstalled);
-  const chrome = 4 + Number(offline) + Number(degraded);
+  const header = headerLines(state, now, theme, classifierEnabled, width);
+  const banners = bannerLines(state, now, theme, classifierEnabled, width);
+  const filter = filterLines(state, theme, width);
+  const status = statusLines(state, theme, width);
+  // The narrow and wide hints are the same length, so either wraps to the same height.
+  const footerHeight = footerLines(state, theme, false, width).length;
+  const chrome = header.length + banners.length + filter.length + status.length + footerHeight;
   const bodyHeight = Math.max(3, height - chrome);
   const stacked = bodyHeight >= STACK_MIN_ROWS;
   const events = selected && state.detail?.sessionId === selected.sessionId ? state.detail.events : null;
@@ -36,7 +40,7 @@ export function Screen({ state, now, width, height, theme, classifierEnabled }: 
   else if (sessions.length === 0 && state.connection !== "connecting") body = <EmptyState filtered={isFiltering(state.filters) || state.labelDraft !== null} theme={theme} />;
   else if (state.view === "detail") body = <Detail session={selected} events={events} now={now} theme={theme} width={width} height={bodyHeight} />;
   else if (stacked) {
-    const listHeight = Math.min(sessions.length + 1, Math.max(4, Math.floor(bodyHeight * LIST_SHARE)));
+    const listHeight = Math.min(sessionListHeight(sessions, state, now, theme, width), Math.max(4, Math.floor(bodyHeight * LIST_SHARE)));
     body = (
       <>
         <SessionList sessions={sessions} state={state} now={now} theme={theme} width={width} height={listHeight} />
@@ -48,14 +52,16 @@ export function Screen({ state, now, width, height, theme, classifierEnabled }: 
 
   return (
     <Box flexDirection="column" width={width}>
-      <Header state={state} now={now} theme={theme} classifierEnabled={classifierEnabled} />
-      <Banners state={state} now={now} theme={theme} classifierEnabled={classifierEnabled} />
-      <FilterBar state={state} theme={theme} />
-      <Box height={bodyHeight} flexDirection="column">
-        {body}
+      <TextLines lines={header} bold inverse={state.flashUntil > now} />
+      <TextLines lines={banners} />
+      <TextLines lines={filter} />
+      <Box height={bodyHeight} flexDirection="column" overflow="hidden">
+        <Box flexDirection="column" flexShrink={0}>
+          {body}
+        </Box>
       </Box>
-      <StatusLine state={state} theme={theme} />
-      <Footer state={state} theme={theme} narrow={!stacked} />
+      <TextLines lines={status} />
+      <TextLines lines={footerLines(state, theme, !stacked, width)} />
     </Box>
   );
 }

@@ -119,6 +119,54 @@ describe("Screen", () => {
   });
 });
 
+describe("Screen on narrow terminals", () => {
+  function linesOf(text: string): string[] {
+    return text.split("\n");
+  }
+
+  it("wraps the header and footer instead of truncating them", () => {
+    const text = frame(withSessions(), 40);
+    expect(text).toMatch(/bell on/);
+    expect(text).toMatch(/q quit/);
+    for (const line of linesOf(text)) expect(line.length).toBeLessThanOrEqual(40);
+  });
+
+  it("wraps a long reason onto the next line under the reason column", () => {
+    const long = reduce(withSessions(), {
+      type: "session",
+      session: sessionView({ sessionId: "sess-b-00000001", label: "docs-site", status: "needs_attention", attentionReason: "Asks whether to overwrite the generated changelog for the release" }),
+      at: FIXTURE_NOW,
+    });
+    const text = frame(long, 80);
+    expect(text.replace(/\s+/g, " ")).toMatch(/Asks whether to overwrite the generated changelog for the release/);
+    for (const line of linesOf(text)) expect(line.length).toBeLessThanOrEqual(80);
+  });
+
+  it("wraps the detail lines instead of truncating them", () => {
+    const evidence = reduce(withSessions(), {
+      type: "session",
+      session: sessionView({
+        sessionId: "sess-a-00000001",
+        label: "billing-api",
+        status: "needs_attention",
+        priority: "high",
+        attentionReason: "Waiting for a permission decision",
+        classificationEvidence: ["PermissionRequest for Bash: psql -c 'drop table invoices' on the production cluster"],
+      }),
+      at: FIXTURE_NOW,
+    });
+    const text = frame(reduce(evidence, { type: "toggle-detail" }), 50, { height: 40 });
+    expect(text.replace(/\s+/g, " ")).toMatch(/on the production cluster/);
+  });
+
+  it("keeps the frame within the terminal height when the chrome wraps", () => {
+    const offline = reduce(withSessions(), { type: "connection", connection: "offline", retryAt: FIXTURE_NOW + 4000 });
+    const text = frame(offline, 40, { height: 20 });
+    expect(linesOf(text).length).toBeLessThanOrEqual(20);
+    expect(text).toMatch(/q quit/);
+  });
+});
+
 describe("theme", () => {
   it("detects unicode support from the locale and terminal", () => {
     expect(supportsUnicode({ LANG: "en_US.UTF-8", TERM: "xterm-256color" }, "linux")).toBe(true);
