@@ -33,3 +33,11 @@ Automated:
 Manual (done): a receiver on port 4399 from this branch against a copy of the real database ended `85f8b23d` and `14da9960` at startup ("ended sessions whose Claude process exited" `count: 2`) and left the two running sessions alone.
 
 Manual (to do): start `claude`, run `/clear`, exit, and check the new session turns Ended within 15 s. Close a terminal tab running `claude` and check the same. Run a nested `claude -p` from inside a session and check the parent stays open.
+
+## Follow-up: orphaned Claude after closing a VS Code terminal
+
+Closing an integrated terminal tab left `claude` running (parent `init`, state `Tl`, pty `(deleted)`), so `kill(pid, 0)` still succeeded and the session never ended.
+
+- `src/receiver/liveness.ts`: `probeProcess` reports `detached` when `/proc/<pid>/fd/0` points at a deleted file; `exitedSessionIds` treats a detached process like a gone one (older-hook sessions still also need to be stale). Linux only.
+- Test: `tests/session-liveness.test.ts` ends a detached Claude process and keeps an attached one.
+- Manual (done): the orphan `80853` from the closed VS Code tab matched the signature.
