@@ -67,9 +67,12 @@ Set `OLLAMA_MODEL` in `.env` to switch models. A user-local Ollama (no root) wor
 mkdir -p ~/.local/opt/ollama && cd ~/.local/opt/ollama
 curl -L -o ollama.tar.zst https://github.com/ollama/ollama/releases/latest/download/ollama-linux-amd64.tar.zst
 tar --zstd -xf ollama.tar.zst
-OLLAMA_MODELS=$PWD/models ./bin/ollama serve &
-OLLAMA_MODELS=$PWD/models ./bin/ollama pull qwen3:1.7b
+ln -sfn $PWD/bin/ollama ~/.local/bin/ollama        # puts `ollama` on your PATH
+OLLAMA_MODELS=$PWD/models ollama serve &
+ollama pull qwen3:1.7b
 ```
+
+The server must be started with `OLLAMA_MODELS` pointing at the user-local models directory every time, otherwise it looks in `~/.ollama/models` and reports the pulled models as missing. The `ollama` CLI itself (`ollama list`, `ollama pull`) talks to the running server and needs no variable.
 
 ## Run
 
@@ -153,7 +156,7 @@ node --no-warnings=ExperimentalWarning scripts/eval-classifier.ts qwen2.5:1.5b q
 pnpm hooks:uninstall          # removes only this project's hook entries, backs up settings first
 rm -rf data/                  # database and ingest token
 # optional: remove the user-local Ollama install and its models
-rm -rf ~/.local/opt/ollama
+rm -rf ~/.local/opt/ollama ~/.local/bin/ollama
 ```
 
 ## Privacy
