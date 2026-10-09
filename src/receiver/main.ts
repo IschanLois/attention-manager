@@ -32,7 +32,14 @@ const receiver = await createReceiver({
 const modelHealth = await classifier.health();
 if (!modelHealth.reachable) logger.warn("local model runtime unreachable; running rule-based only", { url: config.ollamaUrl });
 else if (!modelHealth.modelInstalled) logger.warn("model not installed; running rule-based only", { model: config.ollamaModel });
-else logger.info("local model available", { model: config.ollamaModel });
+else {
+  logger.info("local model available; warming up", { model: config.ollamaModel });
+  const warmupStarted = Date.now();
+  classifier
+    .classify({ eventType: "notification", notificationType: null, toolName: null, text: "warm up", recentFailures: 0 })
+    .then(() => logger.info("model warm", { ms: Date.now() - warmupStarted }))
+    .catch((error: unknown) => logger.warn("model warm-up failed", { error: error instanceof Error ? error.message : String(error) }));
+}
 
 const shutdown = async (signal: string) => {
   logger.info("shutting down", { signal });
