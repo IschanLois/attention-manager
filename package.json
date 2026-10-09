@@ -41,7 +41,7 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
-    "verify": "pnpm lint && pnpm typecheck && pnpm test && pnpm build && npm pack --dry-run",
+    "verify": "pnpm lint && pnpm typecheck && pnpm build && pnpm test && npm pack --dry-run",
     "prepack": "pnpm build",
     "prepublishOnly": "pnpm verify"
   },
