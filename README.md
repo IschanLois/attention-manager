@@ -12,6 +12,16 @@ When several coding agents run at once, the one that matters is rarely the one t
 
 More: [how it works](docs/how-it-works.md), [technical implementation](docs/technical-implementation.md) and `docs/worklogs/` (decisions and verification history).
 
+## Why a local model
+
+The model is asked about every new prompt and finished turn, across every session, all day. That workload favours a small model on your own machine over a hosted one:
+
+- **Latency.** The answer has to arrive while the dashboard is still useful to you. A small local model answers in about 1.5 s (median, on a 4 GB GPU) with no network round trip, no queueing behind other users and no outage to wait out. If it is slow or down, the rule-based state stays and nothing blocks.
+- **Cost.** Classification is high volume and low value per call, which is the worst case for per-token pricing: it grows with every session you add. A local model costs nothing per call, so you can run as many agents as you like without a bill that scales with them.
+- **Privacy.** The model reads prompts and commands, which are exactly where secrets, customer data and unreleased code show up. Running locally means that text never leaves your machine, there is no third party to trust, and the tool works offline. Secret-looking strings are also redacted before the model sees anything (see [Privacy](#privacy)).
+
+The trade-off is accuracy: a 1.7B model gets 16/19 on our classifier cases, which is why the deterministic rules run first and the model can only raise a verdict, never lower it.
+
 ## Setup
 
 Requires macOS or Linux (not Windows) and Claude Code 2.1.x. Ollama is optional: skip steps 1 and 2 and attention runs in rule-based mode.
