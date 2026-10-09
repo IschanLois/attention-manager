@@ -88,6 +88,7 @@ Hook payloads only carry `session_id` and `cwd`, so the forwarder records where 
 | `alacritty {socket, windowId}` | `ALACRITTY_SOCKET`, `ALACRITTY_WINDOW_ID` |
 | `windowId` | `WINDOWID` (X11) |
 | `tty`, `pid`, `ancestors` | the Claude process found by walking the parent chain from the hook (`/proc/<pid>/stat` and `/proc/<pid>/fd/0` on Linux, one `ps -A -o pid=,ppid=,tty=,comm=` on macOS): the first ancestor whose command contains `claude`, else the first with a terminal; `ancestors` are the up to 12 processes above it (the terminal emulator is usually among them) |
+| `processName` | the command name of that process (`claude`, or e.g. `node` in the fallback), used by the liveness check |
 | `cwd`, `display` | payload `cwd`; `x11` / `wayland` / `macos` from `XDG_SESSION_TYPE`, `WAYLAND_DISPLAY`, `DISPLAY` |
 
 The receiver treats all of it as untrusted: `hookEventSchema.terminal` is `unknown`, and `sanitizeTerminal` (`src/core/terminal.ts`) validates every field independently against a strict allow-list pattern (pane `^%\d+$`, ids digits or UUIDs, paths `^/[A-Za-z0-9_./@+-]+$`, tty `/dev/pts/N` or `/dev/ttyX`, pids as positive integers). Anything else, including shell metacharacters and control characters, is dropped field by field; the event itself is never rejected for it. `reduceSession` keeps the latest terminal, so a resumed session that reappears in another pane updates.
@@ -135,6 +136,7 @@ raw JSON ─▶ normalizeHookEvent ─▶ dedupe check ─▶ reduceSession ─�
 
 - In-memory `Map<sessionId, Session>` is the source of truth at runtime, loaded from SQLite at start.
 - Session cap (`MAX_SESSIONS`, default 1000): when exceeded, ended then oldest sessions are evicted and broadcast as `session_removed`. Purge of ended sessions and events older than `RETENTION_DAYS` runs at start and hourly.
+- Liveness (`src/receiver/liveness.ts`): at start and every 15 s the receiver checks open sessions against their recorded Claude process, because Claude sends no `SessionEnd` when it exits right after `/clear`, when its tab is closed, or when it crashes. A session is ended when its `processName` contains `claude` and the pid is gone (`kill(pid, 0)` → `ESRCH`) or, on Linux, `/proc/<pid>/comm` now names another program (pid reuse). Sessions whose pid was not recorded as the Claude process are never ended this way; sessions from older hooks without `processName` are ended only when the pid is gone and the session is stale. Ending goes through the normal ingest path as a synthetic `SessionEnd` with reason `process_exited`, so it is stored, reduced and broadcast like any other event.
 - `CAPTURE_TASK_CONTEXT=0` blanks `taskText`, `taskKind` and `riskHits` before reduction.
 
 ## 3. Normalization (`src/core/events/normalize.ts`)

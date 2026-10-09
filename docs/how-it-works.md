@@ -64,7 +64,7 @@ The receiver keeps one record per session and updates it with a fixed set of rul
 | Error | A tool failed; three failures in two minutes escalate |
 | Completed | The turn finished. The session is still open and waiting for the next prompt. This is **not** the same as ended |
 | Idle | You interrupted the agent |
-| Ended | The session exited |
+| Ended | The session exited: `SessionEnd` arrived, or the receiver saw that the session's Claude process is gone (for example after exiting right after `/clear`, closing the terminal tab, or a crash, when Claude sends no `SessionEnd`) |
 
 ### Attention priority: how urgently you are needed
 
