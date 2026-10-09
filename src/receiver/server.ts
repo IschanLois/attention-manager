@@ -6,6 +6,7 @@ import { createLogger, type Logger, type LogLevel } from "../core/logger.ts";
 import { openStore, type Store } from "../core/persistence/store.ts";
 import { SESSION_ID_PATTERN, type Session } from "../core/schemas.ts";
 import { toSnapshot, toView, type SessionDetail } from "../core/sessions/view.ts";
+import { exitedSessionIds, probeProcess, type ProcessProbe } from "./liveness.ts";
 import { IngestPipeline } from "./pipeline.ts";
 import { perMinuteLimiter, type TokenBucketLimiter } from "./rate-limit.ts";
 import { SseHub } from "./sse.ts";
@@ -25,6 +26,8 @@ export interface ReceiverOptions {
   maxSseClients?: number;
   retryDelayMs?: number;
   captureTaskContext?: boolean;
+  livenessIntervalMs?: number;
+  probeProcess?: ProcessProbe;
   classifier: ClassifierPort;
   logLevel: LogLevel;
   logger?: Logger;
@@ -36,6 +39,7 @@ export interface Receiver {
   port: number;
   host: string;
   sseClients(): number;
+  endExitedSessions(): string[];
   close(): Promise<void>;
 }
 
@@ -168,6 +172,18 @@ export async function createReceiver(options: ReceiverOptions): Promise<Receiver
   const purgeTimer = setInterval(() => pipeline.purge(Date.now(), retentionMs), 60 * 60_000);
   purgeTimer.unref();
 
+  const probe = options.probeProcess ?? probeProcess;
+  function endExitedSessions(): string[] {
+    const ids = exitedSessionIds(pipeline.listSessions(), probe, Date.now(), options.staleAfterMs);
+    for (const sessionId of ids) pipeline.ingest({ hook_event_name: "SessionEnd", session_id: sessionId, reason: "process_exited" });
+    if (ids.length) logger.info("ended sessions whose Claude process exited", { count: ids.length });
+    return ids;
+  }
+  const livenessIntervalMs = options.livenessIntervalMs ?? 15_000;
+  const livenessTimer = livenessIntervalMs > 0 ? setInterval(endExitedSessions, livenessIntervalMs) : null;
+  livenessTimer?.unref();
+  if (livenessTimer) endExitedSessions();
+
   async function health(): Promise<HealthReport> {
     const model = await options.classifier.health();
     return {
@@ -289,8 +305,10 @@ export async function createReceiver(options: ReceiverOptions): Promise<Receiver
     port: address.port,
     host: options.host,
     sseClients: () => hub.size,
+    endExitedSessions,
     async close() {
       clearInterval(purgeTimer);
+      if (livenessTimer) clearInterval(livenessTimer);
       hub.closeAll();
       await pipeline.close();
       server.closeAllConnections();

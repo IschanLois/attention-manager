@@ -549,3 +549,67 @@ describe("receiver", () => {
     }
   });
 });
+
+describe("receiver liveness", () => {
+  it("ends open sessions whose Claude process has exited and leaves running ones alone", async () => {
+    const alive = new Set([4242]);
+    const receiver = await createReceiver({
+      host: "127.0.0.1",
+      port: 0,
+      databasePath: ":memory:",
+      ingestToken: null,
+      maxBodyBytes: 8192,
+      eventHistoryLimit: 20,
+      staleAfterMs: 600_000,
+      dedupeWindowMs: 0,
+      rateLimit: { perSessionPerMinute: 60, globalPerMinute: 200 },
+      classifier: fakeClassifier(),
+      logLevel: "error",
+      livenessIntervalMs: 0,
+      probeProcess: (pid) => (alive.has(pid) ? { alive: true, name: "claude" } : { alive: false, name: null }),
+    });
+    const base = `http://127.0.0.1:${receiver.port}`;
+    const post = (body: unknown) => fetch(`${base}/api/events`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+    try {
+      await post({ ...fx.sessionStart(fx.SESSION_A), terminal: { pid: 4242, processName: "claude", tty: "/dev/pts/4" } });
+      await post({ ...fx.sessionStart(fx.SESSION_B), terminal: { pid: 4343, processName: "claude", tty: "/dev/pts/5" } });
+      expect(receiver.endExitedSessions()).toEqual([fx.SESSION_B]);
+      const { sessions } = (await (await fetch(`${base}/api/sessions`)).json()) as { sessions: Array<{ sessionId: string; status: string }> };
+      expect(Object.fromEntries(sessions.map((s) => [s.sessionId, s.status]))).toEqual({ [fx.SESSION_A]: "starting", [fx.SESSION_B]: "ended" });
+      const detail = await (await fetch(`${base}/api/sessions/${fx.SESSION_B}`)).json();
+      expect(detail.events[0].summary).toBe("Session ended (process_exited)");
+      expect(receiver.endExitedSessions()).toEqual([]);
+    } finally {
+      await receiver.close();
+    }
+  });
+});
+
+describe("receiver liveness at startup", () => {
+  it("ends sessions left open by processes that exited while the receiver was down", async () => {
+    const { mkdtemp, rm } = await import("node:fs/promises");
+    const { join } = await import("node:path");
+    const { tmpdir } = await import("node:os");
+    const dir = await mkdtemp(join(tmpdir(), "attention-liveness-"));
+    const opts = {
+      host: "127.0.0.1", port: 0, databasePath: join(dir, "db.sqlite"), ingestToken: null, maxBodyBytes: 8192,
+      eventHistoryLimit: 20, staleAfterMs: 600_000, dedupeWindowMs: 0,
+      rateLimit: { perSessionPerMinute: 60, globalPerMinute: 200 }, classifier: fakeClassifier(), logLevel: "error" as const,
+      livenessIntervalMs: 60_000,
+    };
+    const first = await createReceiver({ ...opts, probeProcess: () => ({ alive: true, name: "claude" }) });
+    await fetch(`http://127.0.0.1:${first.port}/api/events`, {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ ...fx.sessionStart(), terminal: { pid: 4242, processName: "claude" } }),
+    });
+    await first.close();
+    const second = await createReceiver({ ...opts, probeProcess: () => ({ alive: false, name: null }) });
+    try {
+      const body = await (await fetch(`http://127.0.0.1:${second.port}/api/sessions`)).json();
+      expect(body.sessions[0].status).toBe("ended");
+    } finally {
+      await second.close();
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+});
