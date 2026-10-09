@@ -10,11 +10,12 @@ function session(id: string, overrides: Partial<Session> = {}): Session {
   return rest;
 }
 
-function probe(processes: Record<number, string | null>): ProcessProbe {
-  return (pid) => (pid in processes ? { alive: true, name: processes[pid]! } : { alive: false, name: null });
+function probe(processes: Record<number, string | null>, detached: number[] = []): ProcessProbe {
+  return (pid) => (pid in processes ? { alive: true, name: processes[pid]!, detached: detached.includes(pid) } : { alive: false, name: null });
 }
 
-const check = (sessions: Session[], processes: Record<number, string | null>) => exitedSessionIds(sessions, probe(processes), FIXTURE_NOW, STALE_MS);
+const check = (sessions: Session[], processes: Record<number, string | null>, detached: number[] = []) =>
+  exitedSessionIds(sessions, probe(processes, detached), FIXTURE_NOW, STALE_MS);
 
 describe("exitedSessionIds", () => {
   it("reports open sessions whose Claude process is gone and keeps the running ones", () => {
@@ -27,6 +28,14 @@ describe("exitedSessionIds", () => {
 
   it("reports a session whose pid now belongs to a different program", () => {
     expect(check([session("reused", { terminal: { pid: 300, processName: "claude" } })], { 300: "bash" })).toEqual(["reused"]);
+  });
+
+  it("reports a running Claude process whose terminal was closed under it", () => {
+    const sessions = [
+      session("orphan", { terminal: { pid: 300, processName: "claude" } }),
+      session("attached", { terminal: { pid: 301, processName: "claude" } }),
+    ];
+    expect(check(sessions, { 300: "claude", 301: "claude" }, [300])).toEqual(["orphan"]);
   });
 
   it("keeps a session when the running process name cannot be read", () => {
