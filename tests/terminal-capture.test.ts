@@ -29,6 +29,7 @@ describe("sanitizeTerminal", () => {
       windowId: "41943047",
       tty: "/dev/pts/4",
       pid: 300,
+      processName: "claude",
       ancestors: [200, 100],
       cwd: "/home/ada/my project",
       display: "x11",
@@ -45,6 +46,7 @@ describe("sanitizeTerminal", () => {
       tty: "/dev/pts/4 && curl x",
       windowId: "0x1a00007",
       pid: 300,
+      processName: "claude; reboot",
     });
     expect(result).toEqual({ kitty: { windowId: "4" }, windowId: "0x1a00007", pid: 300 });
   });
@@ -86,7 +88,7 @@ describe("process tree", () => {
   });
 
   it("finds the Claude process above the hook and lists its ancestors", () => {
-    expect(findClaudeProcess(400, LINUX_TREE)).toEqual({ pid: 300, tty: "/dev/pts/4", ancestors: [200, 100] });
+    expect(findClaudeProcess(400, LINUX_TREE)).toEqual({ pid: 300, name: "claude", tty: "/dev/pts/4", ancestors: [200, 100] });
   });
 
   it("falls back to the first ancestor with a terminal when no process is named claude", () => {
@@ -95,7 +97,7 @@ describe("process tree", () => {
       { pid: 350, ppid: 200, comm: "node", tty: "/dev/pts/9" },
       { pid: 200, ppid: 1, comm: "bash", tty: "/dev/pts/9" },
     ]);
-    expect(findClaudeProcess(400, tree)).toEqual({ pid: 350, tty: "/dev/pts/9", ancestors: [200] });
+    expect(findClaudeProcess(400, tree)).toEqual({ pid: 350, name: "node", tty: "/dev/pts/9", ancestors: [200] });
   });
 
   it("returns null when the tree cannot be read", () => {
@@ -118,6 +120,7 @@ describe("collectTerminal", () => {
       windowId: "41943047",
       tty: "/dev/pts/4",
       pid: 300,
+      processName: "claude",
       ancestors: [200, 100],
       cwd: "/home/ada/proj",
       display: "x11",
