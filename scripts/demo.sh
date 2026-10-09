@@ -65,6 +65,7 @@ run_session() {
   local args=(--permission-mode default -n "demo: $name")
   [[ -n "$MODEL" ]] && args+=(--model "$MODEL")
   [[ "$name" == "benign-failure" ]] && args+=(--allowedTools "Bash(cat:*)")
+  [[ "$name" == "risky-cleanup" ]] && args+=(--settings '{"permissions":{"ask":["Bash(rm:*)"]}}')
   printf '\033]2;demo: %s\007' "$name"
   claude "${args[@]}" "$(prompt_for "$name")" || true
   echo
