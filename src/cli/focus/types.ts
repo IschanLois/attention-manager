@@ -10,6 +10,7 @@ export interface FocusContext {
   env: Record<string, string | undefined>;
   exec: Exec;
   ringTty(tty: string): Promise<StepOutcome>;
+  writeTty(tty: string, data: string): Promise<StepOutcome>;
 }
 
 export type StepOutcome = { ok: true } | { ok: false; reason: string };
