@@ -4,38 +4,43 @@ interface Ticker {
   value: number;
   listeners: Set<() => void>;
   timer: ReturnType<typeof setInterval> | null;
+  subscribe: (listener: () => void) => () => void;
+  getSnapshot: () => number;
 }
 
 const tickers = new Map<number, Ticker>();
 
-function ticker(intervalMs: number): Ticker {
+// One ticker per cadence. The subscribe and snapshot functions must keep a stable
+// identity across renders, and the snapshot must only change on a timer tick;
+// otherwise useSyncExternalStore resubscribes and re-renders without end.
+export function clockTicker(intervalMs: number): Ticker {
   let entry = tickers.get(intervalMs);
-  if (!entry) {
-    entry = { value: Date.now(), listeners: new Set(), timer: null };
-    tickers.set(intervalMs, entry);
-  }
-  return entry;
-}
-
-function subscribeTo(intervalMs: number) {
-  return (listener: () => void) => {
-    const entry = ticker(intervalMs);
-    if (entry.listeners.size === 0) {
-      entry.value = Date.now();
-      entry.timer = setInterval(() => {
-        entry.value = Date.now();
-        for (const fn of entry.listeners) fn();
-      }, intervalMs);
-    }
-    entry.listeners.add(listener);
-    return () => {
-      entry.listeners.delete(listener);
-      if (entry.listeners.size === 0 && entry.timer) {
-        clearInterval(entry.timer);
-        entry.timer = null;
+  if (entry) return entry;
+  const created: Ticker = {
+    value: Date.now(),
+    listeners: new Set(),
+    timer: null,
+    subscribe(listener) {
+      if (created.listeners.size === 0) {
+        created.timer = setInterval(() => {
+          created.value = Date.now();
+          for (const fn of created.listeners) fn();
+        }, intervalMs);
       }
-    };
+      created.listeners.add(listener);
+      return () => {
+        created.listeners.delete(listener);
+        if (created.listeners.size === 0 && created.timer) {
+          clearInterval(created.timer);
+          created.timer = null;
+        }
+      };
+    },
+    getSnapshot: () => created.value,
   };
+  entry = created;
+  tickers.set(intervalMs, entry);
+  return entry;
 }
 
 const noopSubscribe = () => () => {};
@@ -47,9 +52,10 @@ const zero = () => 0;
  */
 export function useClock(intervalMs: number, serverNowIso: string, enabled = true): number {
   const serverNow = Date.parse(serverNowIso);
+  const entry = clockTicker(intervalMs);
   return useSyncExternalStore(
-    enabled ? subscribeTo(intervalMs) : noopSubscribe,
-    enabled ? () => ticker(intervalMs).value : zero,
+    enabled ? entry.subscribe : noopSubscribe,
+    enabled ? entry.getSnapshot : zero,
     () => (Number.isNaN(serverNow) ? 0 : serverNow),
   );
 }

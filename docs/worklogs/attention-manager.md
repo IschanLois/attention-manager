@@ -136,6 +136,10 @@ Accepted deviations: events carry no `occurred_at` because hooks have no timesta
 
 - `scripts/doctor.ts`, `scripts/dev.mjs`, README with setup, run, troubleshooting and teardown.
 
+### Post-delivery fix: dashboard render loop (2026-10-09)
+
+Opening the dashboard in a browser threw "Maximum update depth exceeded". The shared clock hook created a new subscribe function on every render, so `useSyncExternalStore` resubscribed each time; every resubscribe reset the snapshot to a fresh `Date.now()`, which scheduled another render. The ticker now keeps stable subscribe and snapshot functions per cadence and only changes its value on a timer tick. A DOM-level regression test (`tests/dashboard-mount.test.tsx`, happy-dom) mounts the dashboard with a stubbed EventSource; it fails with the old hook and passes with the fix. The server-rendered checks used earlier could not catch this because the loop only happens on the client.
+
 ## Known limitations and follow-ups
 
 - The receiver trusts any same-uid process that can read the token; a Unix domain socket would replace Host, Origin and token checks with filesystem permissions.
