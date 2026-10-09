@@ -121,7 +121,13 @@ Accepted residual risks: a same-uid process can read the token and forge events;
 - `pnpm test` (Vitest): event normalization, state transitions, deduplication, classifier validation, security validation.
 - `pnpm typecheck`, `pnpm lint`, `pnpm build`.
 
-### Manual
+### Manual (performed 2026-10-09)
+
+- Headless `claude -p` session in a scratch project with hooks installed: 12 events accepted through `claude-hook.sh` with the token header file; permission requests for Bash and Write captured; session ended cleanly.
+- Interactive pty-driven session ending with "Should I create the missing file for you?": rule set the turn to completed/medium, then qwen3:1.7b classified it as AI-sourced with confidence 0.8 while the session stayed open; model warm-up took 1.3 s after restart.
+- Receiver restarted three times during development; sessions were restored from `data/attention.db` each time.
+- `pnpm doctor` reports receiver, hooks, token, SQLite, model, last event and last classification error.
+
 
 - Install hooks, start receiver and dashboard, run two Claude Code sessions, trigger a permission prompt, confirm the card turns to "Needs attention" without reload.
 - Stop the receiver while a session runs; Claude Code keeps working.
