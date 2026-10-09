@@ -234,6 +234,13 @@ export function priorityFloor(event: NormalizedEvent): Priority {
   }
 }
 
+const PRIORITY_ORDER: Priority[] = ["none", "low", "medium", "high", "critical"];
+
+function oneLevelAbove(level: Priority): Priority {
+  const index = PRIORITY_ORDER.indexOf(level);
+  return PRIORITY_ORDER[Math.min(PRIORITY_ORDER.length - 1, index + 1)]!;
+}
+
 function higherPriority(a: Priority, b: Priority): Priority {
   return PRIORITY_RANK[a] <= PRIORITY_RANK[b] ? a : b;
 }
@@ -272,10 +279,15 @@ export function shouldClassifyTask(session: Session, event: NormalizedEvent): bo
 export function applyTaskClassification(session: Session, trigger: NormalizedEvent, result: Classification, classifiedAt: string, triggerSeq?: number): Session {
   if (session.status === "ended") return session;
   if (!isCurrentTrigger(session, trigger, triggerSeq)) return session;
-  const proposed: Priority = result.needs_attention ? result.priority : result.priority === "none" ? "none" : result.priority;
+  // The model refines the keyword floor but may raise it by at most one level, so an
+  // over-eager verdict on routine work cannot flood the dashboard with high-risk sessions.
+  const proposed: Priority = result.priority;
+  const cap = oneLevelAbove(session.taskRuleSeverity);
+  const raised = higherPriority(proposed, session.taskRuleSeverity);
+  const capped = PRIORITY_RANK[raised] < PRIORITY_RANK[cap] ? cap : raised;
   return {
     ...session,
-    taskSeverity: higherPriority(proposed, session.taskRuleSeverity),
+    taskSeverity: capped,
     taskSeveritySource: "ai",
     taskSeverityReason: result.reason.trim() || session.taskSeverityReason,
     taskSeverityEvidence: result.evidence,

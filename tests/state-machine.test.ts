@@ -325,6 +325,19 @@ describe("task severity", () => {
     expect(stale).toBe(s);
   });
 
+  it("lets the model raise severity by at most one level above the keyword floor", () => {
+    const p = ev({ ...fx.userPromptSubmit(), prompt: "Split the SessionCard component into smaller pieces" });
+    const s = run([ev(fx.sessionStart()), p]);
+    expect(s.taskRuleSeverity).toBe("low");
+    const out = applyTaskClassification(s, p, { needs_attention: true, priority: "critical", reason: "Big refactor.", evidence: [], confidence: 0.8 }, "2026-10-09T09:00:00.000Z", s.eventSeq);
+    expect(out.taskSeverity).toBe("medium");
+    expect(out.taskSeveritySource).toBe("ai");
+    const none = reduceSession(null, ev(fx.sessionStart()));
+    const startEvent = ev(fx.sessionStart());
+    const s2 = reduceSession(none, startEvent);
+    expect(applyTaskClassification(s2, startEvent, { needs_attention: true, priority: "high", reason: "x", evidence: [], confidence: 0.8 }, "2026-10-09T09:00:00.000Z", s2.eventSeq).taskSeverity).toBe("low");
+  });
+
   it("sorts by task severity after attention priority", () => {
     const now = Date.parse("2026-10-09T10:00:00.000Z");
     const t = (minAgo: number) => new Date(now - minAgo * 60_000).toISOString();
