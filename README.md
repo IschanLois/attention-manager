@@ -1,6 +1,12 @@
-# attention: Claude Code Attention Manager
+# attention: know which coding agent needs you, and why
 
-A terminal UI that watches all your Claude Code sessions at once, tells you which one needs you (a permission prompt, a question, a repeated failure, a risky task), and jumps to the terminal, tmux pane or window running it when you press Enter. Session state comes deterministically from Claude Code hook events; a small local model (via Ollama) only interprets the ambiguous ones. Nothing leaves your machine.
+When several coding agents run at once, the one that matters is rarely the one that pinged you last. attention is a terminal dashboard that watches all of your agent sessions and points your attention at the ones with the most at stake. It ranks them by **semantic urgency**: what the agent is about to do, not just whether it is waiting. It tells you **why** each one is ranked where it is, and jumps to the terminal running it when you press Enter.
+
+- **Attention goes to the riskiest session.** Every session carries a risk level for its current task. Keyword rules catch the obvious cases (`rm -rf`, `DROP TABLE`, force pushes). A small local model reads the rest, for example a request to empty "the only copy of our customer list", which contains no risky keyword. Risk ranks first, so the dangerous session sits on top even while it is still working or before it asks for permission.
+- **Setup benchmarks the models you already have.** The best local model depends on the device. `attention setup` can run its classifier test cases against every model installed in Ollama and keep the most accurate one that still answers within 3 s on your hardware. Rule-based mode works without any model.
+- **Every ranking explains itself.** The detail view gives the reason for the risk, the evidence the model quoted from the session, and its confidence (for example "Medium risk: emptying a critical customer list file… [AI confidence 80%]"). Keyword verdicts are labelled "Observed", so you can always tell a rule from a model judgement.
+- **Built for coding agents in general.** Claude Code is the first agent it supports, through its hook events. The ranking, risk model and UI work on a normalized event stream, and support for other coding agents, including fully local ones, is the direction. Today only Claude Code is wired up.
+- **Private by design.** Session state comes deterministically from the agent's hook events. The local model, via Ollama, only interprets the ambiguous ones, and nothing leaves your machine.
 
 ```
  attention  ● live · model qwen3:1.7b · 3 sessions · 1 need you · 1 high risk · bell on
@@ -228,6 +234,35 @@ node scripts/eval-classifier.ts qwen3:1.7b   # live model evaluation (needs Olla
 `scripts/demo.sh` opens six real Claude Code sessions (run `attention` in your own terminal first; `--tui` opens it in a window too), each in its own terminal window (or `--tmux` for one tmux session). Three are worded so that no keyword rule matches and the local model (Ollama) decides: one ends its turn asking you to choose without a question mark, one asks to empty a live customer file, and one runs a command that fails harmlessly and should stay low. The others are a file-write approval, an `rm -rf` of the build folder (a keyword rule flags it, the AI explains it) and a one-word answer. Each runs in a folder under `${ATTENTION_DEMO_DIR:-/tmp/attention-demo}` named after its scenario, which becomes its label in the TUI. The script warns if the local model is not available. The sessions use your Claude plan or API credits, nothing is approved for you, and on the first run each window asks you to trust its folder. `scripts/demo.sh --help` lists the options; `scripts/demo.sh --clean` removes the folders.
 
 The package name and binary name live only in `package.json` (`name`, `bin`); everything else, including the data directory names, derives from them.
+
+## How this was built
+
+### Developed with Claude
+
+attention was developed with [Claude Code](https://claude.com/claude-code). The commit history credits Claude Opus 5.5, Claude Fable 5.1 and Claude Sonnet 5.5 as co-authors. Claude wrote code and tests against a test-first workflow, and the decisions and verification for each feature are recorded in `docs/worklogs/`. Development used Claude online through Anthropic. The tool you install does not call Claude or any other online model.
+
+### Which AI runs where
+
+| Used for | Model | Runs |
+| --- | --- | --- |
+| Ranking and explaining sessions (the product) | `qwen3:1.7b` via Ollama (default; picked by the setup benchmark on a GTX 1650) | **Local**, nothing leaves the machine |
+| Alternatives measured by the benchmark | `qwen2.5:1.5b`, `qwen2.5:3b`, `qwen3:4b-instruct-2507` (Q4_K_M) via Ollama | **Local** |
+| Fallback without a model | Keyword and event rules | **Local** |
+| The agents being watched | Claude Code (the demo sessions run Claude Haiku 5.5) | **Online**, Anthropic |
+| Building attention | Claude Opus 5.5, Fable 5.1, Sonnet 5.5 in Claude Code | **Online**, Anthropic |
+| Demo video narration | Kokoro 82M v1.0 (open weights, ONNX via `kokoro-onnx`, voice `am_michael`) | **Local** |
+
+attention only talks to the Ollama URL you configure, which defaults to `127.0.0.1`. Setup never downloads a model; it prints the `ollama pull` command instead.
+
+### The demo video
+
+The demo video is made from real footage, not mock-ups, in a separate Remotion project:
+
+- **Recording:** a small Python recorder runs `attention setup` (with the model benchmark) and the attention TUI next to six real Claude Code 2.1.295 sessions, each in its own pseudo-terminal on a shared clock. It records asciicast files against an isolated receiver. Only the folder-trust dialog is answered; tool permission prompts are never approved.
+- **Rendering terminals:** [pyte](https://github.com/selectel/pyte) replays the recordings into screen snapshots, which React components draw frame by frame.
+- **Editing and rendering:** [Remotion](https://www.remotion.dev) 4 with React 19 composes the scenes, captions and cuts. The 5-minute benchmark is shown sped up and labelled as such.
+- **Voiceover:** Kokoro TTS, generated locally.
+- **Local AI in the video:** the rankings and reasons on screen come from `qwen3:1.7b` running in Ollama on the recording machine.
 
 ## Privacy
 
