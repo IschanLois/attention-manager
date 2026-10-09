@@ -111,6 +111,38 @@ Still to verify by hand (no access from this session):
 
 **Manual.** Run `attention` with Claude sessions in other VS Code terminal tabs: full-width list with the header and Terminal column, the detail below it following the selection, list only after shrinking the height. Enter raises the window (wmctrl) and the session's tab shows the bell marker; the status line names the tty. `attention focus <label>` prints the same message.
 
+### Fix: fallback source label (`fix/fallback-source-label`)
+
+**Purpose.** When the AI classifier fails (for example, Ollama isn't running), the session's source becomes `fallback` and the detail showed "[Unclassified]" next to a reason or risk that the rules had already set, such as "Critical: … [Unclassified]".
+
+**Changes.** `format.ts`: `sourceLabel("fallback")` returns "Observed · AI unavailable", which says the value came from the rules and the AI check did not run.
+
+**Tests.** `cli-model`: the fallback label.
+
+**Manual.** Stop Ollama and trigger a risky tool call in a session; the Task line reads "Critical: … [Observed · AI unavailable]".
+
+### Fix: no inverse highlight on hoisted rows (`fix/no-hoist-row-highlight`)
+
+**Purpose.** When a session newly needed attention and was hoisted to the top, its whole row was drawn in inverse video for 15 seconds, which swapped the column colours and made the list hard to read.
+
+**Changes.** `components.tsx` `SessionRow`: dropped `inverse` on highlighted rows; they stay bold. The header flash, status line and bell are unchanged. README describes the row as moved up and bolded.
+
+**Tests.** None added: the highlight state in `tui-state` is unchanged and only its rendering changed.
+
+**Manual.** Run `attention`, make a session need attention; the row moves to the top in bold with its column colours intact, and the header still flashes.
+
+### Fix: clearer AI confidence wording (`fix/no-hoist-row-highlight`)
+
+**Purpose.** "AI 72%" and "AI · 72%" did not say what the percentage meant.
+
+**Changes.** `format.ts` `sourceLabel`: model verdicts read "AI confidence 72%", or "AI confidence unknown" without a score. `components.tsx` `aiTag`: rows read "AI confidence 72%" (still plain "AI" without a score). README updated.
+
+**Decisions.** The longer row tag leaves less room for the reason; at 80 columns a critical-risk row truncates the reason right after the tag. The detail view still shows the full reason.
+
+**Tests.** `cli-model`: the new `sourceLabel` wording. `tui-render`: the detail shows `[AI confidence 72%]` and `[AI confidence 85%]`, and the row shows `AI confidence 72%`.
+
+**Manual.** With Ollama running, trigger a model-classified attention reason; the row and the detail both read "AI confidence nn%".
+
 ## Known limitations
 
 - **Wayland:** there is no generic window-focus API. Only tmux, screen, kitty, WezTerm, sway and Hyprland routes work there; GNOME and KDE get the manual hint.

@@ -163,13 +163,13 @@ describe("AI confidence", () => {
 
   it("shows the attention and task-severity confidence in the detail", () => {
     const text = frame(aiState(), 140);
-    expect(text).toMatch(/Asks whether to drop the backup table[\s\S]*AI · 72%/);
-    expect(text).toMatch(/Critical risk: Schema change on production[\s\S]*AI · 85%/);
+    expect(text).toMatch(/Asks whether to drop the backup table[\s\S]*\[AI confidence 72%\]/);
+    expect(text).toMatch(/Critical risk: Schema change on production[\s\S]*\[AI confidence 85%\]/);
   });
 
   it("shows the attention confidence on the row so it is visible without opening the detail", () => {
     const text = frame(aiState(), 80);
-    expect(text).toMatch(/AI 72%/);
+    expect(text).toMatch(/!critical AI confidence 72%/);
   });
 
   it("marks rule-based verdicts as observed in the detail", () => {

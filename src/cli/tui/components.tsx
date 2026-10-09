@@ -106,7 +106,7 @@ export function FilterBar({ state, theme }: { state: TuiState; theme: Theme }) {
 }
 
 function aiTag(confidence: number | null): string {
-  return confidence === null ? "AI" : `AI ${Math.round(confidence * 100)}%`;
+  return confidence === null ? "AI" : `AI confidence ${Math.round(confidence * 100)}%`;
 }
 
 function riskBadge(session: SessionView, theme: Theme): string {
@@ -158,7 +158,7 @@ export function SessionRow({ session, selected, highlighted, now, theme, layout 
   const ai = session.attentionReason && session.classificationSource === "ai" ? aiTag(session.classificationConfidence) : "";
   const dim = session.status === "ended" || session.stale;
   return (
-    <Text wrap="truncate-end" bold={selected || highlighted} inverse={highlighted && !selected} dimColor={dim && !selected}>
+    <Text wrap="truncate-end" bold={selected || highlighted} dimColor={dim && !selected}>
       <Text color={theme.color("cyan")}>{selected ? glyphs.selected : glyphs.unselected}</Text>{" "}
       <Text color={theme.statusColor(session.status)}>{glyphs.status[session.status]}</Text>{" "}
       <Text color={theme.priorityColor(session.priority)}>{pad(PRIORITY_LABELS[session.priority], PRIORITY_WIDTH)}</Text>
