@@ -144,9 +144,14 @@ main() {
   ATTENTION="$(command -v attention || true)"
   [[ -n "$ATTENTION" ]] || ATTENTION="$(dirname "$SELF")/../dist/cli/main.js"
   [[ -x "$ATTENTION" ]] || die "attention is not built; run pnpm build"
-  "$ATTENTION" hooks status | grep -q "Status: *installed" || die "hooks are not installed; run: attention setup"
+  # Capture output before matching: `grep -q` exits at the first match and a still-writing
+  # attention gets EPIPE, which pipefail turns into a failure.
+  local hooks_status doctor_report
+  hooks_status="$("$ATTENTION" hooks status 2>&1 || true)"
+  grep -q "Status: *installed" <<<"$hooks_status" || die "hooks are not installed; run: attention setup"
 
-  "$ATTENTION" doctor 2>/dev/null | grep -i "local model" | grep -qi "available" \
+  doctor_report="$("$ATTENTION" doctor 2>/dev/null || true)"
+  grep -qiE "local model.*available" <<<"$doctor_report" \
     || echo "demo: warning: the local model is not available, so the AI scenarios will show the rule-based fallback. Run: attention doctor" >&2
 
   if (( ! with_tui )) && "$ATTENTION" doctor 2>/dev/null | grep -i "receiver" | grep -qi "not running"; then
