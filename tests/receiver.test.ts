@@ -244,6 +244,83 @@ describe("receiver", () => {
     expect(classifier.calls).toBe(1);
   });
 
+  it("handles a burst of concurrent events from several sessions without losing state", async () => {
+    const ids = Array.from({ length: 5 }, (_, i) => `aaaaaaaa-0000-4000-8000-00000000000${i}`);
+    await Promise.all(ids.map((id) => post(fx.sessionStart(id))));
+    await Promise.all(ids.flatMap((id) => Array.from({ length: 8 }, (_, j) => post(fx.preToolUse(id, `${id}-t${j}`)))));
+    await Promise.all(ids.map((id, i) => (i % 2 === 0 ? post(fx.permissionRequest(id, `${id}-perm`)) : post(fx.stop(id)))));
+    const { sessions: list } = await sessions();
+    expect(list).toHaveLength(5);
+    for (const [i, id] of ids.entries()) {
+      const s = list.find((x) => x.sessionId === id)!;
+      expect(s.status).toBe(i % 2 === 0 ? "needs_attention" : "completed");
+    }
+    const detail = await (await fetch(`${base}/api/sessions/${ids[0]}`)).json();
+    expect(detail.events.length).toBe(10);
+  });
+
+  it("keeps deterministic state and records the error when the classifier fails", async () => {
+    const failing = await createReceiver({
+      host: "127.0.0.1", port: 0, databasePath: ":memory:", ingestToken: TOKEN, maxBodyBytes: 4096,
+      eventHistoryLimit: 20, staleAfterMs: 600_000, dedupeWindowMs: 0,
+      rateLimit: { perSessionPerMinute: 60, globalPerMinute: 200 }, logLevel: "error",
+      classifier: {
+        async classify() { throw new Error("boom"); },
+        async health() { return { reachable: true, modelInstalled: true, model: "m", url: "u", error: null }; },
+      },
+    });
+    try {
+      const url = `http://127.0.0.1:${failing.port}`;
+      const send = (body: unknown) => fetch(`${url}/api/events`, {
+        method: "POST", headers: { "content-type": "application/json", "x-attention-token": TOKEN }, body: JSON.stringify(body),
+      });
+      await send(fx.sessionStart(fx.SESSION_B));
+      await send(fx.unknownNotification());
+      await new Promise((r) => setTimeout(r, 50));
+      const list = (await (await fetch(`${url}/api/sessions`)).json()).sessions;
+      expect(list[0].priority).toBe("medium");
+      expect(list[0].classificationSource).toBe("fallback");
+      expect(list[0].classificationError).toContain("classifier failure");
+      const health = await (await fetch(`${url}/api/health`)).json();
+      expect(health.lastClassificationError.message).toContain("classifier failure");
+      await send(fx.permissionRequest());
+      const after = (await (await fetch(`${url}/api/sessions`)).json()).sessions;
+      expect(after[0].status).toBe("needs_attention");
+      expect(after[0].priority).toBe("high");
+    } finally {
+      await failing.close();
+    }
+  });
+
+  it("applies a successful classification and shows it as AI-sourced", async () => {
+    const smart = await createReceiver({
+      host: "127.0.0.1", port: 0, databasePath: ":memory:", ingestToken: TOKEN, maxBodyBytes: 4096,
+      eventHistoryLimit: 20, staleAfterMs: 600_000, dedupeWindowMs: 0,
+      rateLimit: { perSessionPerMinute: 60, globalPerMinute: 200 }, logLevel: "error",
+      classifier: {
+        async classify() { return { needs_attention: true, priority: "high", reason: "The session needs re-authentication.", evidence: ["auth"], confidence: 0.77 }; },
+        async health() { return { reachable: true, modelInstalled: true, model: "m", url: "u", error: null }; },
+      },
+    });
+    try {
+      const url = `http://127.0.0.1:${smart.port}`;
+      const send = (body: unknown) => fetch(`${url}/api/events`, {
+        method: "POST", headers: { "content-type": "application/json", "x-attention-token": TOKEN }, body: JSON.stringify(body),
+      });
+      await send(fx.sessionStart(fx.SESSION_B));
+      await send(fx.unknownNotification(fx.SESSION_B, "Authentication required: run gh auth login"));
+      await new Promise((r) => setTimeout(r, 50));
+      const s = (await (await fetch(`${url}/api/sessions`)).json()).sessions[0];
+      expect(s.priority).toBe("high");
+      expect(s.classificationSource).toBe("ai");
+      expect(s.classificationConfidence).toBe(0.77);
+      expect(s.attentionReason).toContain("re-authentication");
+      expect(s.classificationEvidence).toEqual(["auth"]);
+    } finally {
+      await smart.close();
+    }
+  });
+
   it("restores persisted sessions after restart", async () => {
     const { mkdtemp, rm } = await import("node:fs/promises");
     const { join } = await import("node:path");
