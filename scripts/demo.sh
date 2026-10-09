@@ -67,7 +67,8 @@ run_session() {
   [[ "$name" == "benign-failure" ]] && args+=(--allowedTools "Bash(cat:*)")
   [[ "$name" == "risky-cleanup" ]] && args+=(--settings '{"permissions":{"ask":["Bash(rm:*)"]}}')
   printf '\033]2;demo: %s\007' "$name"
-  claude "${args[@]}" "$(prompt_for "$name")" || true
+  # `--` ends the options: --allowedTools takes several values and would swallow the prompt.
+  claude "${args[@]}" -- "$(prompt_for "$name")" || true
   echo
   echo "[$name] claude exited. Press Enter to close."
   read -r _

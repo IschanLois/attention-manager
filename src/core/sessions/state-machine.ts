@@ -278,9 +278,14 @@ export function shouldClassifyTask(session: Session, event: NormalizedEvent): bo
   return event.type === "prompt" || event.type === "turn_complete";
 }
 
-export function applyTaskClassification(session: Session, trigger: NormalizedEvent, result: Classification, classifiedAt: string, triggerSeq?: number): Session {
-  if (session.status === "ended") return session;
-  if (!isCurrentTrigger(session, trigger, triggerSeq)) return session;
+// A task verdict stays valid while the session works on the same task: tool calls usually
+// arrive before the model answers, and they must not discard the verdict.
+export function isSameTask(session: Session, taskSummary: string | null): boolean {
+  return session.status !== "ended" && session.taskSummary === taskSummary;
+}
+
+export function applyTaskClassification(session: Session, result: Classification, classifiedAt: string, taskSummary: string | null): Session {
+  if (!isSameTask(session, taskSummary)) return session;
   // The model refines the keyword floor but may raise it by at most one level, so an
   // over-eager verdict on routine work cannot flood the dashboard with high-risk sessions.
   const proposed: Priority = result.priority;
@@ -298,8 +303,8 @@ export function applyTaskClassification(session: Session, trigger: NormalizedEve
   };
 }
 
-export function recordTaskClassificationFailure(session: Session, trigger: NormalizedEvent, at: string, triggerSeq?: number): Session {
-  if (!isCurrentTrigger(session, trigger, triggerSeq)) return session;
+export function recordTaskClassificationFailure(session: Session, at: string, taskSummary: string | null): Session {
+  if (!isSameTask(session, taskSummary)) return session;
   return { ...session, taskSeveritySource: "fallback", taskClassifiedAt: at };
 }
 

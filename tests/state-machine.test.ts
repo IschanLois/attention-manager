@@ -312,16 +312,16 @@ describe("task severity", () => {
     const p = ev({ ...fx.userPromptSubmit(), prompt: "rewrite the authentication middleware" });
     const s = run([ev(fx.sessionStart()), p]);
     expect(s.taskSeverity).toBe("high");
-    const raised = applyTaskClassification(s, p, { needs_attention: true, priority: "critical", reason: "Touches login for all users.", evidence: ["authentication"], confidence: 0.7 }, "2026-10-09T09:00:00.000Z", s.eventSeq);
+    const raised = applyTaskClassification(s, { needs_attention: true, priority: "critical", reason: "Touches login for all users.", evidence: ["authentication"], confidence: 0.7 }, "2026-10-09T09:00:00.000Z", s.taskSummary);
     expect(raised.taskSeverity).toBe("critical");
     expect(raised.taskSeveritySource).toBe("ai");
     expect(raised.taskSeverityReason).toBe("Touches login for all users.");
     expect(raised.taskSeverityConfidence).toBe(0.7);
     expect(raised.taskRuleSeverity).toBe("high");
-    const lowered = applyTaskClassification(s, p, { needs_attention: false, priority: "none", reason: "Trivial.", evidence: [], confidence: 0.9 }, "2026-10-09T09:00:00.000Z", s.eventSeq);
+    const lowered = applyTaskClassification(s, { needs_attention: false, priority: "none", reason: "Trivial.", evidence: [], confidence: 0.9 }, "2026-10-09T09:00:00.000Z", s.taskSummary);
     expect(lowered.taskSeverity).toBe("high");
     expect(lowered.taskSeveritySource).toBe("ai");
-    const stale = applyTaskClassification(s, p, { needs_attention: true, priority: "critical", reason: "x", evidence: [], confidence: 0.9 }, "2026-10-09T09:00:00.000Z", s.eventSeq - 1);
+    const stale = applyTaskClassification(s, { needs_attention: true, priority: "critical", reason: "x", evidence: [], confidence: 0.9 }, "2026-10-09T09:00:00.000Z", "an earlier task");
     expect(stale).toBe(s);
   });
 
@@ -329,13 +329,13 @@ describe("task severity", () => {
     const p = ev({ ...fx.userPromptSubmit(), prompt: "Split the SessionCard component into smaller pieces" });
     const s = run([ev(fx.sessionStart()), p]);
     expect(s.taskRuleSeverity).toBe("low");
-    const out = applyTaskClassification(s, p, { needs_attention: true, priority: "critical", reason: "Big refactor.", evidence: [], confidence: 0.8 }, "2026-10-09T09:00:00.000Z", s.eventSeq);
+    const out = applyTaskClassification(s, { needs_attention: true, priority: "critical", reason: "Big refactor.", evidence: [], confidence: 0.8 }, "2026-10-09T09:00:00.000Z", s.taskSummary);
     expect(out.taskSeverity).toBe("medium");
     expect(out.taskSeveritySource).toBe("ai");
     const none = reduceSession(null, ev(fx.sessionStart()));
     const startEvent = ev(fx.sessionStart());
     const s2 = reduceSession(none, startEvent);
-    expect(applyTaskClassification(s2, startEvent, { needs_attention: true, priority: "high", reason: "x", evidence: [], confidence: 0.8 }, "2026-10-09T09:00:00.000Z", s2.eventSeq).taskSeverity).toBe("low");
+    expect(applyTaskClassification(s2, { needs_attention: true, priority: "high", reason: "x", evidence: [], confidence: 0.8 }, "2026-10-09T09:00:00.000Z", s2.taskSummary).taskSeverity).toBe("low");
   });
 
   it("sorts by task severity before attention priority, with done sessions below active ones", () => {

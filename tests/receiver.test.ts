@@ -497,6 +497,74 @@ describe("receiver", () => {
     }
   });
 
+  describe("task severity while the agent keeps working", () => {
+    const verdict = (priority: "medium" | "high", reason: string) => ({ needs_attention: true, priority, reason, evidence: [], confidence: 0.8 });
+
+    async function receiverWithSlowTaskModel() {
+      const pending: { prompt: string | null; resolve: (v: ReturnType<typeof verdict>) => void }[] = [];
+      const smart = await createReceiver({
+        host: "127.0.0.1", port: 0, databasePath: ":memory:", ingestToken: TOKEN, maxBodyBytes: 4096,
+        eventHistoryLimit: 20, staleAfterMs: 600_000, dedupeWindowMs: 0,
+        rateLimit: { perSessionPerMinute: 60, globalPerMinute: 200 }, logLevel: "error",
+        classifier: {
+          async classify() { return null; },
+          classifyTask(input) { return new Promise((resolve) => pending.push({ prompt: input.taskSummary, resolve })); },
+          async health() { return { reachable: true, modelInstalled: true, model: "m", url: "u", error: null }; },
+        },
+      });
+      const url = `http://127.0.0.1:${smart.port}`;
+      const send = (body: unknown) => fetch(`${url}/api/events`, {
+        method: "POST", headers: { "content-type": "application/json", "x-attention-token": TOKEN }, body: JSON.stringify(body),
+      });
+      const session = async () => (await (await fetch(`${url}/api/sessions`)).json()).sessions[0];
+      const settle = () => new Promise((r) => setTimeout(r, 50));
+      return { smart, send, session, settle, pending };
+    }
+
+    it("keeps the verdict on a task when tool events arrive before the model answers", async () => {
+      const { smart, send, session, settle, pending } = await receiverWithSlowTaskModel();
+      try {
+        await send(fx.sessionStart());
+        await send({ ...fx.userPromptSubmit(), prompt: "Replace customers.csv, the live support list, with just its header row" });
+        await settle();
+        await send({ ...fx.preToolUse(fx.SESSION_A, "t1"), tool_input: { command: "head -n 1 customers.csv" } });
+        await send({ ...fx.postToolUse(fx.SESSION_A, "t1"), tool_input: { command: "head -n 1 customers.csv" } });
+        await send({ ...fx.permissionRequest(fx.SESSION_A, "t2"), tool_input: { command: "printf 'name\\n' > customers.csv" } });
+        pending[0]!.resolve(verdict("medium", "Empties a live file the support team relies on."));
+        await settle();
+        const s = await session();
+        expect(s.taskSeverity).toBe("medium");
+        expect(s.taskSeveritySource).toBe("ai");
+        expect(s.taskSeverityReason).toBe("Empties a live file the support team relies on.");
+      } finally {
+        await smart.close();
+      }
+    });
+
+    it("drops a verdict for a task that a newer prompt replaced", async () => {
+      const { smart, send, session, settle, pending } = await receiverWithSlowTaskModel();
+      try {
+        await send(fx.sessionStart());
+        await send({ ...fx.userPromptSubmit(), prompt: "Rotate the production database password" });
+        await settle();
+        await send({ ...fx.userPromptSubmit(), prompt: "Actually, just fix the README typo" });
+        pending[0]!.resolve(verdict("high", "Touches production credentials."));
+        await settle();
+        let s = await session();
+        expect(s.taskSummary).toBe("Actually, just fix the README typo");
+        expect(s.taskSeveritySource).toBe("rule");
+        const latest = pending.find((p) => p.prompt === "Actually, just fix the README typo")!;
+        latest.resolve(verdict("medium", "Routine docs edit."));
+        await settle();
+        s = await session();
+        expect(s.taskSeveritySource).toBe("ai");
+        expect(s.taskSeverityReason).toBe("Routine docs edit.");
+      } finally {
+        await smart.close();
+      }
+    });
+  });
+
   it("stores no task context when capture is disabled", async () => {
     const quiet = await createReceiver({
       host: "127.0.0.1", port: 0, databasePath: ":memory:", ingestToken: TOKEN, maxBodyBytes: 4096,

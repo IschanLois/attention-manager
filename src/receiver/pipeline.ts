@@ -6,6 +6,7 @@ import type { NormalizedEvent, Session } from "../core/schemas.ts";
 import {
   applyClassification,
   applyTaskClassification,
+  isSameTask,
   recordClassificationFailure,
   recordTaskClassificationFailure,
   reduceSession,
@@ -168,6 +169,14 @@ export class IngestPipeline {
     return this.drainPromise;
   }
 
+  // Attention verdicts describe the latest event; task verdicts describe the current task.
+  private isCurrent(job: PendingJob): boolean {
+    const current = this.sessions.get(job.session.sessionId);
+    if (!current) return false;
+    if (job.kind === "task") return isSameTask(current, job.session.taskSummary);
+    return current.status !== "ended" && current.eventSeq === job.seq;
+  }
+
   private async classifyWithRetry(input: ClassifierInput | TaskClassifierInput, job: PendingJob) {
     const run = () =>
       job.kind === "task"
@@ -177,7 +186,7 @@ export class IngestPipeline {
       return await run();
     } catch (error) {
       const timedOut = error instanceof ClassifierError && error.kind === "timeout";
-      const stillCurrent = () => this.sessions.get(job.session.sessionId)?.eventSeq === job.seq;
+      const stillCurrent = () => this.isCurrent(job);
       if (!timedOut || this.closed || !stillCurrent()) throw error;
       this.options.logger.debug("classification timed out; retrying once", { sessionId: job.session.sessionId });
       await new Promise((resolve) => setTimeout(resolve, this.options.retryDelayMs ?? 2000));
@@ -188,7 +197,7 @@ export class IngestPipeline {
 
   private async runJob(job: PendingJob): Promise<void> {
     const current = this.sessions.get(job.session.sessionId);
-    if (!current || current.eventSeq !== job.seq || current.status === "ended") return;
+    if (!current || !this.isCurrent(job)) return;
     const input: ClassifierInput | TaskClassifierInput = job.kind === "task"
       ? { taskSummary: current.taskSummary, recentActions: current.recentActions, narration: current.lastNarration, ruleSeverity: current.taskRuleSeverity }
       : {
@@ -205,7 +214,7 @@ export class IngestPipeline {
       if (!latest || result === null) return;
       const at = new Date(this.now()).toISOString();
       const updated = job.kind === "task"
-        ? applyTaskClassification(latest, job.event, result, at, job.seq)
+        ? applyTaskClassification(latest, result, at, job.session.taskSummary)
         : applyClassification(latest, job.event, result, at, job.seq);
       if (updated !== latest) this.commit(updated);
     } catch (error) {
@@ -217,7 +226,7 @@ export class IngestPipeline {
       if (!latest) return;
       const at = new Date(this.now()).toISOString();
       const updated = job.kind === "task"
-        ? recordTaskClassificationFailure(latest, job.event, at, job.seq)
+        ? recordTaskClassificationFailure(latest, at, job.session.taskSummary)
         : recordClassificationFailure(latest, job.event, message.slice(0, 200), at, job.seq);
       if (updated !== latest) this.commit(updated);
     }

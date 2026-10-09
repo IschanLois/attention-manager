@@ -51,3 +51,7 @@ Manual:
 - Done: `scripts/demo.sh --no-tui --only quick-done` with a receiver running opened a GNOME Terminal window. `attention list` showed `quick-done · Turn complete · LOW`.
 - To do: full run `scripts/demo.sh`. Check the six rows and that the three AI scenarios show AI verdicts and their states, and press Enter on each row with its window minimised.
 - To do: `scripts/demo.sh --tmux` where tmux is installed (it is not on the development machine).
+
+## Fix: benign-failure never received its prompt
+
+`--allowedTools` takes several values, so in `claude --allowedTools "Bash(cat:*)" "<prompt>"` the prompt was read as a second tool rule. The benign-failure session opened with an empty prompt and stayed "Starting". `run_session` now passes `--` before the prompt. This was checked with `claude -p --model haiku --allowedTools "Bash(cat:*)" -- "Reply with exactly the word ok"`, which answered `ok`. Found while recording the Remotion demo video (branch `fix/task-severity-stale`).

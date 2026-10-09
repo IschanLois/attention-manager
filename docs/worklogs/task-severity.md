@@ -112,3 +112,30 @@ The PRIORITY column showed the attention priority. That value mostly says whethe
   - The state test checks that the `1`-`4` keys set the risk filter.
   - The announcement and `list` tests check the "Needs input" wording.
 - **Manual:** run the demo. The PRIORITY column matches the risk in the detail view, and the waiting sessions read "Needs input".
+
+## Fix: task verdicts discarded while the agent keeps working
+
+Branch `fix/task-severity-stale` (stacked on `feat/risk-first-sort`).
+
+### Purpose
+
+The model's task verdict was dropped whenever any newer event reached the session before the model answered. Real Claude sessions call their first tool one or two seconds after the prompt, so the AI risk almost never landed. Recording the demo against six real sessions showed it: the "empty the live customer file" task stayed at "Low risk: No risk keywords matched", although the model rates it medium when it gets to answer. The prompt arrived at :54.8 and the first Bash call at :57.2. Nothing was logged, because a stale result is discarded silently.
+
+### Decisions
+
+- Task jobs are now current while the session works on the same task (`taskSummary` unchanged and not ended). Tool calls, permission prompts and notifications no longer invalidate them.
+- A newer prompt still replaces the task, so a verdict for the old task is dropped.
+- Attention verdicts keep the per-event check: they describe the latest event.
+
+### Changes
+
+- `src/core/sessions/state-machine.ts`: `isSameTask`. `applyTaskClassification` and `recordTaskClassificationFailure` take the task the verdict was made for, not the trigger event and sequence.
+- `src/receiver/pipeline.ts`: `isCurrent(job)` picks the right check per job kind. It is used before the run, before the timeout retry and when applying.
+- Tests: `tests/receiver.test.ts` and `tests/state-machine.test.ts`.
+
+### Test plan
+
+- **Automated:**
+  - `receiver.test.ts` "task severity while the agent keeps working": a gated model answers after tool events and a permission request, and the verdict still applies (this failed before the fix). A verdict for a task that a newer prompt replaced is dropped, and the new task's verdict applies.
+  - The state-machine tests now cover staleness by task.
+- **Manual:** run `scripts/demo.sh --only hidden-risk` with the local model available. customer-sync shows an AI risk with a reason about the live customer file, not "No risk keywords matched".
