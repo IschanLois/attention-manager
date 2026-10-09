@@ -91,6 +91,24 @@ Events are ordered by arrival at the receiver (hooks carry no timestamps). Dupli
 - `tests/fixtures/classifier-cases.json` plus `scripts/eval-classifier.ts` for live evaluation.
 - Live results on this machine (19 cases): qwen2.5:1.5b 15/19 correct, p50 1.2 s; qwen2.5:3b 15/19, p50 1.6 s. Both under-detect question-like turn ends, which the deterministic rule already covers.
 
+### Milestone 5: security hardening (commit after review)
+
+Agent C's threat model confirmed the receiver controls (loopback bind, Host and Origin checks, token with constant-time compare, Content-Type gate, byte-counted body limit, rate limits, dedupe, schema stripping of prompt/tool fields, delimited untrusted model input, validated output with priority floors). Gaps fixed:
+
+| Finding | Fix |
+| --- | --- |
+| Next bound to all interfaces | `next dev/start -H 127.0.0.1`, telemetry disabled |
+| Unbounded SSE clients | cap (default 16), 503 beyond it |
+| Unbounded sessions | cap (default 1000) with ended/oldest eviction; ended sessions and events purged after `RETENTION_DAYS` (7) at startup and hourly |
+| Token visible in curl argv | installer writes `data/ingest-header` (0600); hook uses `curl -H @file` |
+| No security headers on the dashboard | CSP, Referrer-Policy, nosniff, X-Frame-Options in `next.config.ts`; `react/no-danger` lint error |
+| Bidi/zero-width characters survive sanitization | stripped in `sanitizeText` |
+| 64 KB body limit drops large `Stop` payloads | default raised to 256 KB |
+| Missing token silently disabled auth | receiver exits unless `ATTENTION_ALLOW_NO_TOKEN=1` |
+| Prompt attribute injection, `%zz` 500 | attributes stripped of quotes/angle brackets; 400 on bad encoding |
+
+Accepted residual risks: a same-uid process can read the token and forge events; the model can still word a misleading reason within the deterministic floor; dev-mode CSP allows inline/eval; payload fields still cross the loopback socket before being dropped; SQLite is unencrypted at rest beyond file mode 0600.
+
 ### Diagnostics and docs (commit 03aca82)
 
 - `scripts/doctor.ts`, `scripts/dev.mjs`, README with setup, run, troubleshooting and teardown.
