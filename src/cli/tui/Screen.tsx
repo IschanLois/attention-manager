@@ -1,11 +1,13 @@
 import { Box } from "ink";
 import type { ReactNode } from "react";
 import { isFiltering } from "../model/filters.ts";
-import { Banners, Connecting, Detail, EmptyState, FilterBar, Footer, Header, HelpOverlay, SessionList, StatusLine } from "./components.tsx";
+import { Banners, Connecting, Detail, Divider, EmptyState, FilterBar, Footer, Header, HelpOverlay, SessionList, StatusLine } from "./components.tsx";
 import { selectedSession, visibleSessions, type TuiState } from "./state.ts";
 import type { Theme } from "./theme.ts";
 
-export const WIDE_MIN_COLUMNS = 100;
+// Below this body height the detail no longer fits under the list, so it becomes a drill-down.
+export const STACK_MIN_ROWS = 14;
+const LIST_SHARE = 0.45;
 
 export interface ScreenProps {
   state: TuiState;
@@ -20,11 +22,11 @@ export interface ScreenProps {
 export function Screen({ state, now, width, height, theme, classifierEnabled }: ScreenProps) {
   const sessions = visibleSessions(state, now);
   const selected = selectedSession(state, now);
-  const wide = width >= WIDE_MIN_COLUMNS;
   const offline = state.connection === "offline" || state.connection === "reconnecting";
   const degraded = classifierEnabled && state.health !== null && (!state.health.model.reachable || !state.health.model.modelInstalled);
   const chrome = 4 + Number(offline) + Number(degraded);
   const bodyHeight = Math.max(3, height - chrome);
+  const stacked = bodyHeight >= STACK_MIN_ROWS;
   const events = selected && state.detail?.sessionId === selected.sessionId ? state.detail.events : null;
 
   let body: ReactNode;
@@ -33,15 +35,14 @@ export function Screen({ state, now, width, height, theme, classifierEnabled }: 
   else if (state.sessions.length === 0 && state.connection !== "connecting") body = <EmptyState filtered={false} theme={theme} />;
   else if (sessions.length === 0 && state.connection !== "connecting") body = <EmptyState filtered={isFiltering(state.filters) || state.labelDraft !== null} theme={theme} />;
   else if (state.view === "detail") body = <Detail session={selected} events={events} now={now} theme={theme} width={width} height={bodyHeight} />;
-  else if (wide) {
-    const listWidth = Math.floor(width * 0.55);
+  else if (stacked) {
+    const listHeight = Math.min(sessions.length + 1, Math.max(4, Math.floor(bodyHeight * LIST_SHARE)));
     body = (
-      <Box>
-        <SessionList sessions={sessions} state={state} now={now} theme={theme} width={listWidth} height={bodyHeight} />
-        <Box marginLeft={2} width={width - listWidth - 2}>
-          <Detail session={selected} events={events} now={now} theme={theme} width={width - listWidth - 2} height={bodyHeight} />
-        </Box>
-      </Box>
+      <>
+        <SessionList sessions={sessions} state={state} now={now} theme={theme} width={width} height={listHeight} />
+        <Divider theme={theme} width={width} />
+        <Detail session={selected} events={events} now={now} theme={theme} width={width} height={bodyHeight - listHeight - 1} />
+      </>
     );
   } else body = <SessionList sessions={sessions} state={state} now={now} theme={theme} width={width} height={bodyHeight} />;
 
@@ -54,7 +55,7 @@ export function Screen({ state, now, width, height, theme, classifierEnabled }: 
         {body}
       </Box>
       <StatusLine state={state} theme={theme} />
-      <Footer state={state} theme={theme} narrow={!wide} />
+      <Footer state={state} theme={theme} narrow={!stacked} />
     </Box>
   );
 }

@@ -40,33 +40,56 @@ function withSessions(): TuiState {
   return state;
 }
 
-function frame(state: TuiState, width: number, options: { classifierEnabled?: boolean } = {}): string {
-  const { lastFrame, unmount } = render(<Screen state={state} now={FIXTURE_NOW} width={width} height={30} theme={plain} classifierEnabled={options.classifierEnabled ?? true} />);
+function frame(state: TuiState, width: number, options: { classifierEnabled?: boolean; height?: number } = {}): string {
+  const { lastFrame, unmount } = render(<Screen state={state} now={FIXTURE_NOW} width={width} height={options.height ?? 30} theme={plain} classifierEnabled={options.classifierEnabled ?? true} />);
   const text = lastFrame() ?? "";
   unmount();
   return text;
 }
 
+function rowOf(text: string, label: string): string {
+  return text.split("\n").find((line) => line.includes(label)) ?? "";
+}
+
 describe("Screen", () => {
-  it("shows the header counts, the ordered list and the detail beside it on wide terminals", () => {
-    const text = frame(withSessions(), 140);
+  it("shows the header counts and the full-width list above the detail", () => {
+    const text = frame(withSessions(), 120);
     expect(text).toMatch(/live/);
     expect(text).toMatch(/2 sessions\W+1 need you\W+1 high risk/);
     expect(text.indexOf("billing-api")).toBeLessThan(text.indexOf("docs-site"));
     expect(text).toMatch(/HIGH/);
-    expect(text).toMatch(/Migrate the invoices table/);
+    expect(text.indexOf("docs-site")).toBeLessThan(text.indexOf("Migrate the invoices table"));
+    expect(text).toMatch(/^Task\s*$/m);
     expect(text).toMatch(/Dropping a production table/);
     expect(text).toMatch(/psql -c 'drop table invoices'/);
     expect(text).toMatch(/Enter focus/);
   });
 
-  it("shows only the list on narrow terminals and the detail as a drill-down", () => {
-    const list = frame(withSessions(), 70);
+  it("shows only the list on short terminals and the detail as a drill-down", () => {
+    const list = frame(withSessions(), 100, { height: 12 });
     expect(list).toMatch(/docs-site/);
     expect(list).not.toMatch(/Migrate the invoices table/);
-    const detail = frame(reduce(withSessions(), { type: "toggle-detail" }), 70);
+    const detail = frame(reduce(withSessions(), { type: "toggle-detail" }), 100, { height: 12 });
     expect(detail).toMatch(/Migrate the invoices table/);
     expect(detail).not.toMatch(/docs-site/);
+  });
+
+  it("adds a column header and a terminal column when the list has the width", () => {
+    const wide = frame(withSessions(), 110);
+    expect(wide).toMatch(/SESSION\s+STATUS\s+SEEN\s+TERMINAL/);
+    expect(rowOf(wide, "billing-api")).toMatch(/tmux %2/);
+    expect(rowOf(frame(withSessions(), 70), "billing-api")).not.toMatch(/tmux %2/);
+  });
+
+  it("keeps the task out of the list and shows it only in the detail", () => {
+    for (const width of [110, 160]) {
+      const text = frame(withSessions(), width);
+      expect(rowOf(text, "billing-api")).toMatch(/Waiting for a permission decision/);
+      expect(rowOf(text, "billing-api")).not.toMatch(/Migrate the invoices table/);
+      expect(text).not.toMatch(/\bTASK\b/);
+    }
+    const noReason = reduce(withSessions(), { type: "session", session: sessionView({ sessionId: "sess-b-00000001", label: "docs-site", taskSummary: "Rewrite the README" }), at: FIXTURE_NOW });
+    expect(rowOf(frame(noReason, 120), "docs-site")).not.toMatch(/Rewrite the README/);
   });
 
   it("explains how to connect when there are no sessions", () => {
