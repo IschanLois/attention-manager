@@ -32,7 +32,9 @@ export function isLoopbackUrl(url: string): boolean {
   }
 }
 
-let currentEnv: NodeJS.ProcessEnv = process.env;
+type Env = Record<string, string | undefined>;
+
+let currentEnv: Env = process.env;
 
 function intFromEnv(name: string, fallback: number, min: number, max: number): number {
   const raw = currentEnv[name];
@@ -48,14 +50,22 @@ export function readIngestToken(tokenPath: string): string | null {
   return token || null;
 }
 
-export function loadConfig(env: NodeJS.ProcessEnv = process.env, cwd: string = process.cwd()): ReceiverConfig {
+export interface ConfigDefaults {
+  port?: number;
+  databasePath?: string;
+  tokenPath?: string;
+  ollamaUrl?: string;
+  ollamaModel?: string;
+}
+
+export function loadConfig(env: Env = process.env, cwd: string = process.cwd(), defaults: ConfigDefaults = {}): ReceiverConfig {
   currentEnv = env;
   const host = env.RECEIVER_HOST?.trim() || "127.0.0.1";
-  const databasePath = env.DATABASE_PATH?.trim() || "./data/attention.db";
-  const tokenPath = resolve(cwd, env.INGEST_TOKEN_PATH?.trim() || "./data/ingest-token");
+  const databasePath = env.DATABASE_PATH?.trim() || defaults.databasePath || "./data/attention.db";
+  const tokenPath = resolve(cwd, env.INGEST_TOKEN_PATH?.trim() || defaults.tokenPath || "./data/ingest-token");
   return {
     host,
-    port: intFromEnv("RECEIVER_PORT", 4318, 1, 65535),
+    port: intFromEnv("RECEIVER_PORT", defaults.port ?? 4318, 1, 65535),
     databasePath: databasePath === ":memory:" ? databasePath : resolve(cwd, databasePath),
     tokenPath,
     ingestToken: readIngestToken(tokenPath),
@@ -67,8 +77,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env, cwd: string = p
       perSessionPerMinute: intFromEnv("RATE_LIMIT_PER_SESSION", 120, 1, 100_000),
       globalPerMinute: intFromEnv("RATE_LIMIT_GLOBAL", 1200, 1, 1_000_000),
     },
-    ollamaUrl: (env.OLLAMA_URL?.trim() || "http://127.0.0.1:11434").replace(/\/+$/, ""),
-    ollamaModel: env.OLLAMA_MODEL?.trim() || "qwen3:1.7b",
+    ollamaUrl: (env.OLLAMA_URL?.trim() || defaults.ollamaUrl || "http://127.0.0.1:11434").replace(/\/+$/, ""),
+    ollamaModel: env.OLLAMA_MODEL?.trim() || defaults.ollamaModel || "qwen3:1.7b",
     classifyTimeoutMs: intFromEnv("CLASSIFY_TIMEOUT_MS", 15_000, 500, 600_000),
     retentionMs: intFromEnv("RETENTION_DAYS", 7, 1, 365) * 24 * 60 * 60_000,
     maxSessions: intFromEnv("MAX_SESSIONS", 1000, 10, 100_000),
