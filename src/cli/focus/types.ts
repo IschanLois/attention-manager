@@ -9,6 +9,7 @@ export interface FocusContext {
   platform: string;
   env: Record<string, string | undefined>;
   exec: Exec;
+  ringTty(tty: string): Promise<StepOutcome>;
 }
 
 export type StepOutcome = { ok: true } | { ok: false; reason: string };
@@ -22,10 +23,12 @@ export interface FocusAdapter {
   manualCommand?(info: TerminalInfo): string | null;
 }
 
-export type FocusResult =
+// `highlighted` is the tty whose bell was rung so its tab or window is marked.
+export type FocusResult = (
   | { kind: "focused"; via: string[]; notes: string[] }
   | { kind: "unsupported"; hint: string }
-  | { kind: "failed"; reason: string; hint: string };
+  | { kind: "failed"; reason: string; hint: string }
+) & { highlighted?: string };
 
 export async function runAll(ctx: FocusContext, commands: Array<[string, string[]]>): Promise<StepOutcome> {
   for (const [file, args] of commands) {

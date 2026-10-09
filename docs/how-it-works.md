@@ -111,13 +111,13 @@ Run `attention`. It lists every session as a row, ordered so the most important 
 4. fresh before stale,
 5. most recent first.
 
-Each row shows a status glyph, the priority, the project name, the status, how long ago the last event arrived, a risk badge for medium or higher task severity, and the reason. On a wide terminal the selected session's details sit beside the list (reason and evidence, task and risk, recent actions, recent events, where it runs); on a narrow one `d` drills into them.
+The list spans the full width under a column header. Each row shows a status glyph, the priority, the project name, the status, how long ago the last event arrived, the terminal it runs in (100+ columns), a risk badge for medium or higher task severity, and the reason (or the last event when nothing needs you). The task summary lives only in the detail. When the terminal is tall enough the selected session's details sit below the list (reason and evidence, task and risk, recent actions, recent events, where it runs); on a short one `d` drills into them.
 
 The header shows the connection, the model, how many sessions need attention and how many are high-risk. When a session newly needs you, errors, or starts critical-risk work, its row is highlighted, the header flashes, a status line says why, and the terminal bell rings (toggle with `b`). Filters (`/` label, `1`-`5` priority, `e` ended) and sort (`s`) are one key away; `?` lists them all.
 
 ### Jumping to the session
 
-Press Enter (or `f`) on a row and the UI switches to that session's terminal: the right tmux pane or screen window, the kitty or WezTerm tab, the iTerm2 or Terminal.app tab, or the X11 window (with `xdotool` or `wmctrl`), and on sway or Hyprland the right window. When none of those is possible (for example a plain terminal on GNOME or KDE Wayland, which offer no way for an app to focus another window), the status line says so and prints the tty, pid, directory and a command you can copy. `attention focus <label>` does the same from a script.
+Press Enter (or `f`) on a row and the UI switches to that session's terminal: the right tmux pane or screen window, the kitty or WezTerm tab, the iTerm2 or Terminal.app tab, or the X11 window (with `xdotool` or `wmctrl`), and on sway or Hyprland the right window. When none of those is possible (for example a plain terminal on GNOME or KDE Wayland, which offer no way for an app to focus another window), the status line says so and prints the tty, pid, directory and a command you can copy. Either way the UI also rings the bell on the session's tty, which marks its tab in VS Code, GNOME Terminal and most tabbed terminals and sets the window's urgency hint on X11, because raising a window cannot select a tab inside it. `attention focus <label>` does the same from a script.
 
 ### Honest about uncertainty
 

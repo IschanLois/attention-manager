@@ -7,13 +7,14 @@ import { sessionLabel } from "../model/format.ts";
 import { fetchSessions, matchSession } from "./list.ts";
 
 export function describeFocusResult(result: FocusResult, name: string): string {
+  const tty = result.highlighted?.replace(/^\/dev\//, "");
   switch (result.kind) {
     case "focused":
-      return `Focused ${name} via ${result.via.join(" + ")}${result.notes.length ? ` (${result.notes.join("; ")})` : ""}`;
+      return `Focused ${name} via ${result.via.join(" + ")}${tty ? `, rang the bell on ${tty}` : ""}${result.notes.length ? ` (${result.notes.join("; ")})` : ""}`;
     case "unsupported":
-      return `Can't focus ${name} automatically. ${result.hint}`;
+      return `${tty ? `Rang the bell on ${tty} to mark its tab. ` : ""}Can't focus ${name} automatically. ${result.hint}`;
     case "failed":
-      return `Focusing ${name} failed: ${result.reason}. ${result.hint}`;
+      return `${tty ? `Rang the bell on ${tty} to mark its tab. ` : ""}Focusing ${name} failed: ${result.reason}. ${result.hint}`;
   }
 }
 

@@ -42,7 +42,7 @@ export function fallbackHint(info: TerminalInfo | null, ctx: FocusContext): stri
   return parts.join(" ");
 }
 
-export async function focusSession(info: TerminalInfo | null, ctx: FocusContext): Promise<FocusResult> {
+async function raise(info: TerminalInfo | null, ctx: FocusContext): Promise<FocusResult> {
   const steps = planFocus(info, ctx);
   if (steps.length === 0) return { kind: "unsupported", hint: fallbackHint(info, ctx) };
   const via: string[] = [];
@@ -54,4 +54,13 @@ export async function focusSession(info: TerminalInfo | null, ctx: FocusContext)
   }
   if (via.length > 0) return { kind: "focused", via, notes: failures };
   return { kind: "failed", reason: failures.join("; "), hint: fallbackHint(info, ctx) };
+}
+
+// Raising a window cannot pick a tab inside it (VS Code, GNOME Terminal), so the
+// session's tty also gets a bell, which marks that tab and sets the window urgency hint.
+export async function focusSession(info: TerminalInfo | null, ctx: FocusContext): Promise<FocusResult> {
+  const result = await raise(info, ctx);
+  if (!info?.tty) return result;
+  const rang = await ctx.ringTty(info.tty);
+  return rang.ok ? { ...result, highlighted: info.tty } : result;
 }

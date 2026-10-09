@@ -114,34 +114,86 @@ function riskBadge(session: SessionView, theme: Theme): string {
   return theme.unicode ? `⚠ ${session.taskSeverity}` : `!${session.taskSeverity}`;
 }
 
-export function SessionRow({ session, selected, highlighted, now, theme, width }: { session: SessionView; selected: boolean; highlighted: boolean; now: number; theme: Theme; width: number }) {
+const TERMINAL_COLUMN_MIN_WIDTH = 100;
+const PRIORITY_WIDTH = 9;
+const STATUS_WIDTH = 15;
+const SEEN_WIDTH = 7;
+const TERMINAL_WIDTH = 14;
+
+interface RowLayout {
+  prefix: number;
+  label: number;
+  terminal: boolean;
+}
+
+// The label column shrinks to the longest visible label so the reason gets the rest.
+function rowLayout(width: number, theme: Theme, longestLabel: number): RowLayout {
+  const terminal = width >= TERMINAL_COLUMN_MIN_WIDTH;
+  const label = Math.max(10, Math.min(longestLabel + 1, 28, Math.floor(width * 0.28)));
+  const prefix = theme.glyphs.selected.length + theme.glyphs.status.needs_attention.length + 2;
+  return { prefix, label, terminal };
+}
+
+function shortTty(tty: string): string {
+  return tty.replace(/^\/dev\//, "");
+}
+
+export function terminalShort(terminal: TerminalInfo | null): string {
+  if (!terminal) return "?";
+  if (terminal.tmux) return `tmux ${terminal.tmux.pane}`;
+  if (terminal.screen) return `screen ${terminal.screen.window ?? terminal.screen.sty}`;
+  if (terminal.kitty) return `kitty ${terminal.kitty.windowId}`;
+  if (terminal.wezterm) return `wezterm ${terminal.wezterm.pane}`;
+  if (terminal.iterm) return "iTerm2";
+  if (terminal.appleTerminal) return "Terminal.app";
+  const parts = [terminal.termProgram, terminal.tty ? shortTty(terminal.tty) : undefined].filter(Boolean);
+  return parts.join(" ") || "?";
+}
+
+export function SessionRow({ session, selected, highlighted, now, theme, layout }: { session: SessionView; selected: boolean; highlighted: boolean; now: number; theme: Theme; layout: RowLayout }) {
   const { glyphs } = theme;
   const label = sessionLabel(session.label, session.sessionId);
-  const labelWidth = Math.max(10, Math.min(28, Math.floor(width * 0.28)));
-  const reason = session.attentionReason ?? session.taskSummary ?? humaniseEventType(session.lastEventType);
+  const reason = session.attentionReason ?? humaniseEventType(session.lastEventType);
   const risk = riskBadge(session, theme);
+  const ai = session.attentionReason && session.classificationSource === "ai" ? aiTag(session.classificationConfidence) : "";
   const dim = session.status === "ended" || session.stale;
   return (
     <Text wrap="truncate-end" bold={selected || highlighted} inverse={highlighted && !selected} dimColor={dim && !selected}>
       <Text color={theme.color("cyan")}>{selected ? glyphs.selected : glyphs.unselected}</Text>{" "}
       <Text color={theme.statusColor(session.status)}>{glyphs.status[session.status]}</Text>{" "}
-      <Text color={theme.priorityColor(session.priority)}>{pad(PRIORITY_LABELS[session.priority], 9)}</Text>
-      {pad(label, labelWidth)} <Text color={theme.statusColor(session.status)}>{pad(STATUS_LABELS[session.status], 15)}</Text>{" "}
-      {pad(relativeTime(session.lastSeenAt, now), 7)}
+      <Text color={theme.priorityColor(session.priority)}>{pad(PRIORITY_LABELS[session.priority], PRIORITY_WIDTH)}</Text>
+      {pad(label, layout.label)} <Text color={theme.statusColor(session.status)}>{pad(STATUS_LABELS[session.status], STATUS_WIDTH)}</Text>{" "}
+      {pad(relativeTime(session.lastSeenAt, now), SEEN_WIDTH)}
+      {layout.terminal ? <Text color={theme.color("blue")}>{pad(terminalShort(session.terminal), TERMINAL_WIDTH)} </Text> : null}
       {risk ? <Text color={theme.priorityColor(session.taskSeverity)}>{risk} </Text> : null}
-      {session.attentionReason && session.classificationSource === "ai" ? <Text color={theme.color("magenta")}>{aiTag(session.classificationConfidence)} </Text> : null}
+      {ai ? <Text color={theme.color("magenta")}>{ai} </Text> : null}
       <Text color={theme.color("gray")}>{reason}</Text>
+    </Text>
+  );
+}
+
+function ListHeader({ theme, layout }: { theme: Theme; layout: RowLayout }) {
+  const columns = [" ".repeat(layout.prefix), pad("PRIORITY", PRIORITY_WIDTH), pad("SESSION", layout.label), " ", pad("STATUS", STATUS_WIDTH), " ", pad("SEEN", SEEN_WIDTH)];
+  if (layout.terminal) columns.push(pad("TERMINAL", TERMINAL_WIDTH), " ");
+  columns.push("REASON");
+  return (
+    <Text color={theme.color("gray")} wrap="truncate-end">
+      {columns.join("")}
     </Text>
   );
 }
 
 export function SessionList({ sessions, state, now, theme, width, height }: { sessions: SessionView[]; state: TuiState; now: number; theme: Theme; width: number; height: number }) {
   const selectedIndex = Math.max(0, sessions.findIndex((s) => s.sessionId === state.selectedId));
-  const rows = Math.max(1, height);
+  const space = Math.max(1, height - 1);
+  const overflow = sessions.length > space;
+  const rows = Math.max(1, overflow ? space - 1 : space);
   const start = Math.min(Math.max(0, selectedIndex - Math.floor(rows / 2)), Math.max(0, sessions.length - rows));
   const windowed = sessions.slice(start, start + rows);
+  const layout = rowLayout(width, theme, Math.max(0, ...windowed.map((s) => sessionLabel(s.label, s.sessionId).length)));
   return (
-    <Box flexDirection="column" width={width}>
+    <Box flexDirection="column" width={width} height={height} overflow="hidden">
+      <ListHeader theme={theme} layout={layout} />
       {windowed.map((session) => (
         <SessionRow
           key={session.sessionId}
@@ -150,16 +202,20 @@ export function SessionList({ sessions, state, now, theme, width, height }: { se
           highlighted={(state.highlights[session.sessionId] ?? 0) > now}
           now={now}
           theme={theme}
-          width={width}
+          layout={layout}
         />
       ))}
-      {sessions.length > rows ? (
+      {overflow ? (
         <Text color={theme.color("gray")}>
           {start + 1}-{Math.min(sessions.length, start + rows)} of {sessions.length}
         </Text>
       ) : null}
     </Box>
   );
+}
+
+export function Divider({ theme, width }: { theme: Theme; width: number }) {
+  return <Text color={theme.color("gray")}>{(theme.unicode ? "─" : "-").repeat(Math.max(0, width))}</Text>;
 }
 
 function terminalSummary(terminal: TerminalInfo | null): string {
@@ -286,7 +342,7 @@ export function EmptyState({ filtered, theme }: { filtered: boolean; theme: Them
 
 const HELP: Array<[string, string]> = [
   ["j / k, arrows", "move the selection (g / G: first / last)"],
-  ["Enter or f", "focus the terminal running the selected session"],
+  ["Enter or f", "focus the session's terminal and ring its bell to mark the tab"],
   ["d or Tab", "show or hide the detail view"],
   ["/", "filter by label (Enter keeps it, Esc restores)"],
   ["s", "cycle sort: attention, recent, label"],
