@@ -4,6 +4,7 @@
   "description": "A terminal UI that shows which Claude Code sessions need you and jumps to the terminal running them.",
   "license": "MIT",
   "type": "module",
+  "author": "christianlois.olo@gmail.com",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/IschanLois/app-builders-hackathon.git"

@@ -2,6 +2,8 @@
 
 ![demo](./demo.png)
 
+attention is a free, open source command-line tool, published on npm as [`attention-manager`](https://www.npmjs.com/package/attention-manager) and released under the [MIT license](LICENSE).
+
 Your attention is the scarce resource when several coding agents run at once. Today you spend it by hand: cycling through terminals, rereading prompts, guessing which agent is about to do something you would want to stop. attention automates that triage. It watches all of your agent sessions, decides which one deserves you right now, tells you **why**, and jumps to its terminal when you press Enter.
 
 It ranks by **semantic urgency**: what the agent is about to do, not just whether it is waiting. The one that matters is rarely the one that pinged you last.
