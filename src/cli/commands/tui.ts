@@ -60,7 +60,7 @@ export async function runTui(ctx: CliContext, flags: { keepRunning: boolean; bel
       focus: focusContext(current),
       ringBell: () => process.stdout.write(BELL),
     }),
-    { alternateScreen: true, exitOnCtrlC: false, incrementalRendering: true, patchConsole: true },
+    { alternateScreen: true, exitOnCtrlC: false, patchConsole: true },
   );
 
   const onSignal = () => instance.unmount();
