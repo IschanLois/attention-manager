@@ -18,6 +18,7 @@ const HEALTH = {
 function inputs(overrides: Partial<DoctorInputs> = {}): DoctorInputs {
   return {
     platform: "linux",
+    nodeVersion: "24.1.0",
     configError: null,
     tokenPresent: true,
     hooks: { state: "installed", events: [], commands: [], reason: null },
@@ -64,6 +65,14 @@ describe("doctorChecks", () => {
     expect(doctorExitCode(stopped)).toBe(0);
     const missingModel = doctorChecks(inputs({ health: { ...HEALTH, model: { ...HEALTH.model, modelInstalled: false } } }));
     expect(byId(missingModel, "model").hint).toBe("ollama pull qwen3:1.7b");
+  });
+
+  it("fails as misconfiguration on a Node older than 24 and tells the user which version to install", () => {
+    const old = doctorChecks(inputs({ nodeVersion: "22.12.0" }));
+    expect(byId(old, "node")).toMatchObject({ status: "fail", misconfiguration: true, detail: expect.stringMatching(/22\.12\.0/), hint: expect.stringMatching(/Node\.js 24/) });
+    expect(doctorExitCode(old)).toBe(2);
+    expect(byId(doctorChecks(inputs({ nodeVersion: "24.1.0" })), "node")).toMatchObject({ status: "ok", detail: "v24.1.0" });
+    expect(byId(doctorChecks(inputs({ nodeVersion: "25.0.0" })), "node").status).toBe("ok");
   });
 
   it("reports the model as disabled when local AI is off", () => {

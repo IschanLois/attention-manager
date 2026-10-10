@@ -23,6 +23,7 @@ export interface Check {
 
 export interface DoctorInputs {
   platform: string;
+  nodeVersion: string;
   configError: string | null;
   tokenPresent: boolean;
   hooks: HookStatus | { state: "error"; reason: string };
@@ -58,8 +59,23 @@ function terminalCheck(inputs: DoctorInputs): Check {
   return { id: "terminal", label: "terminal focus", status: "warn", detail, hint: inputs.platform === "linux" && !wayland ? "install xdotool or wmctrl, or run Claude inside tmux" : undefined };
 }
 
+const REQUIRED_NODE_MAJOR = 24;
+
+function nodeCheck(nodeVersion: string): Check {
+  const label = "node";
+  if (Number(nodeVersion.split(".")[0]) >= REQUIRED_NODE_MAJOR) return { id: "node", label, status: "ok", detail: `v${nodeVersion}` };
+  return {
+    id: "node",
+    label,
+    status: "fail",
+    detail: `v${nodeVersion}; attention needs Node.js ${REQUIRED_NODE_MAJOR} or newer`,
+    hint: `install Node.js ${REQUIRED_NODE_MAJOR} (for example \`nvm install ${REQUIRED_NODE_MAJOR}\`) and reinstall attention with it`,
+    misconfiguration: true,
+  };
+}
+
 export function doctorChecks(inputs: DoctorInputs): Check[] {
-  const checks: Check[] = [];
+  const checks: Check[] = [nodeCheck(inputs.nodeVersion)];
   checks.push(
     inputs.configError
       ? { id: "config", label: "config", status: "fail", detail: inputs.configError, hint: "fix or delete the file, then run `attention setup`", misconfiguration: true }
@@ -160,6 +176,7 @@ export async function gatherDoctorInputs(ctx: CliContext): Promise<DoctorInputs>
   const sessions = health ? await client.sessions().then((s) => s.sessions).catch(() => null) : null;
   return {
     platform: ctx.platform,
+    nodeVersion: process.versions.node,
     configError: ctx.configError ?? null,
     tokenPresent: existsSync(ctx.paths.tokenFile),
     hooks,

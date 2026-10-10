@@ -1,20 +1,22 @@
-# attention: know which coding agent needs you, and why
+# attention: automate your attention
 
 ![demo](./demo.png)
 
-When several coding agents run at once, the one that matters is rarely the one that pinged you last. attention is a terminal dashboard that watches all of your agent sessions and ranks them by **semantic urgency**: what the agent is about to do, not just whether it is waiting. It tells you **why** each one is ranked where it is, and jumps to its terminal when you press Enter.
+Your attention is the scarce resource when several coding agents run at once. Today you spend it by hand: cycling through terminals, rereading prompts, guessing which agent is about to do something you would want to stop. attention automates that triage. It watches all of your agent sessions, decides which one deserves you right now, tells you **why**, and jumps to its terminal when you press Enter.
 
-- **Attention goes to the riskiest session.** Keyword rules catch the obvious cases (`rm -rf`, `DROP TABLE`, force pushes). A small local model reads the rest, for example a request to empty "the only copy of our customer list". Risk ranks first, so the dangerous session sits on top even while it is still working.
-- **Every ranking explains itself.** The detail view gives the reason, the evidence the model quoted and its confidence. Keyword verdicts are labelled "Observed", so you can tell a rule from a model judgement.
-- **Setup benchmarks the models you already have.** `attention setup` can test every model installed in Ollama and keep the most accurate one that answers within 3 s on your hardware. Rule-based mode works without any model.
-- **Private by design.** State comes deterministically from the agent's hook events. The local model only interprets ambiguous ones, and nothing leaves your machine.
-- **Built for coding agents in general.** Claude Code is the only agent wired up today (through its hook events). The ranking, risk model and UI work on a normalized event stream, so other agents are the direction.
+It ranks by **semantic urgency**: what the agent is about to do, not just whether it is waiting. The one that matters is rarely the one that pinged you last.
+
+- **It decides where you look.** Keyword rules catch the obvious cases (`rm -rf`, `DROP TABLE`, force pushes). A small local model reads the rest, for example a request to empty "the only copy of our customer list". Risk ranks first, so the dangerous session sits on top even while it is still working.
+- **It shows its reasoning, so you can trust the shortcut.** The detail view gives the reason, the evidence the model quoted and its confidence. Keyword verdicts are labelled "Observed", so you can tell a rule from a model judgement.
+- **It runs without you tending it.** Sessions are detected automatically through the agent's hook events, and the model only reads the ambiguous ones. `attention setup` can benchmark the models you already have in Ollama and keep the most accurate one that answers within 3 s. Rule-based mode works without any model.
+- **It stays on your machine.** State comes deterministically from hook events, and nothing leaves your machine.
+- **It is built for coding agents in general.** Claude Code is the only agent wired up today. The ranking, risk model and UI work on a normalized event stream, so other agents are the direction.
 
 More: [how it works](docs/how-it-works.md), [technical implementation](docs/technical-implementation.md) and `docs/worklogs/` (decisions and verification history).
 
 ## Why a local model
 
-The model is asked about every new prompt and finished turn, across every session, all day. That workload favours a small model on your own machine over a hosted one:
+Automating attention means the model is asked about every new prompt and finished turn, across every session, all day. That workload favours a small model on your own machine over a hosted one:
 
 - **Latency.** The answer has to arrive while the dashboard is still useful to you. A small local model answers in about 1.5 s (median, on a 4 GB GPU) with no network round trip, no queueing behind other users and no outage to wait out. If it is slow or down, the rule-based state stays and nothing blocks.
 - **Cost.** Classification is high volume and low value per call, which is the worst case for per-token pricing: it grows with every session you add. A local model costs nothing per call, so you can run as many agents as you like without a bill that scales with them.
@@ -24,7 +26,7 @@ The trade-off is accuracy: a 1.7B model gets 16/19 on our classifier cases, whic
 
 ## Setup
 
-Requires macOS or Linux (not Windows) and Claude Code 2.1.x. Ollama is optional: skip steps 1 and 2 and attention runs in rule-based mode.
+Requires macOS or Linux (not Windows), Claude Code 2.1.x and **Node.js 24 or newer**. Ollama is optional: skip steps 1 and 2 and attention runs in rule-based mode.
 
 ### 1. Install Ollama
 
@@ -57,9 +59,16 @@ It works well on higher-spec laptops, but its median latency is above the 3 s bu
 
 If you pull several, `attention setup` can benchmark them and keep the best one.
 
-### 3. Install Node.js
+### 3. Install Node.js 24
 
-Node.js 24 or newer (it uses the built-in `node:sqlite`): `nvm install 24 && nvm use 24`.
+> **Node.js 24 or newer is required.** attention uses the built-in `node:sqlite`, which older versions lack or only offer behind flags, so it will not work on Node 22 or earlier.
+
+```bash
+node --version             # must print v24 or higher
+nvm install 24 && nvm use 24
+```
+
+Install attention with the same Node you will run it with, since the global package and the hook command are tied to that Node.
 
 ### 4. Install from npm
 
@@ -81,7 +90,7 @@ The first run asks at most three questions, then opens the live UI:
 
 There is nothing to register per session: once the hooks are installed, attention detects every Claude Code session automatically, and new ones appear in the dashboard as soon as they start.
 
-Re-run `attention setup` to change the answers, or `attention setup --yes` to accept defaults non-interactively. To watch a single project, install the hooks into its settings: `CLAUDE_SETTINGS_PATH=/path/to/project/.claude/settings.json attention hooks install`. If something looks off, run `attention doctor`.
+Re-run `attention setup` to change the answers, or `attention setup --yes` to accept defaults non-interactively. To watch a single project, install the hooks into its settings: `CLAUDE_SETTINGS_PATH=/path/to/project/.claude/settings.json attention hooks install`. If anything fails to start or run, first check `node --version` prints v24 or higher. `attention doctor` reports the Node version on its first line and fails with exit code 2 when it is too old.
 
 ## Usage
 
@@ -195,6 +204,7 @@ Directories are created with mode 0700 and files with 0600. `ATTENTION_CONFIG_DI
 ## Troubleshooting
 
 - **No sessions appear.** Run `attention doctor`. Hooks must be installed in the settings file Claude Code reads and not be stale, and the session must have started after they were installed.
+- **Any error on start or at runtime.** Check `node --version` is v24 or higher (`attention doctor` shows it too), then reinstall attention under that Node.
 - **`hooks status` says stale after an upgrade or Node change.** Run `attention hooks install` again.
 - **Enter does not focus.** `attention doctor` lists the focus route for your shell. Sessions started before the hooks were (re)installed carry no terminal info until their next event. On GNOME/KDE Wayland, run Claude inside tmux, kitty or WezTerm. In VS Code and other tabbed terminals the window is raised but not the tab, so Enter also rings the bell; in VS Code enable `terminal.integrated.enableBell` to see it.
 - **Permission prompts don't show up.** `Notification` hooks only fire in interactive sessions; `PermissionRequest` fires in both.

@@ -34,3 +34,14 @@ It also states openly how the project and its demo video were made, and which AI
 - **Manual:**
   - Read the rendered README on GitHub.
   - Check that every model and version named matches `config.json` defaults, the setup benchmark output and the demo recordings (Claude Code 2.1.295, Haiku 5.5, `qwen3:1.7b`, Kokoro `am_michael`).
+
+## Node 24 requirement
+
+- **Purpose:** attention only works on Node.js 24 or newer (built-in `node:sqlite`). Earlier versions fail with unclear errors.
+- **Changes:**
+  - `README.md`: Node 24 is called out in Setup (requirement line, a dedicated callout in step 3, the run step) and in Troubleshooting as the first thing to check on any error.
+  - `src/cli/doctor.ts`: new `node` check, first in `attention doctor`. It fails as misconfiguration (exit 2) below Node 24 and hints how to install it.
+- **Test plan:**
+  - Automated: `tests/cli-doctor.test.ts` covers Node 22 (fail, exit 2, version in the message), 24 and 25 (ok).
+  - Manual: run `attention doctor` under Node 24 and see `OK   node v24.x`.
+- **Limitation:** on a Node too old to load the CLI at all, `attention doctor` cannot run, so the README tells users to check `node --version` first.
