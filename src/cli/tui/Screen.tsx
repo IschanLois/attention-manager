@@ -2,12 +2,25 @@ import { Box } from "ink";
 import type { ReactNode } from "react";
 import { isFiltering } from "../model/filters.ts";
 import { bannerLines, sessionListHeight, Connecting, Detail, Divider, EmptyState, filterLines, footerLines, headerLines, HelpOverlay, SessionList, statusLines, TextLines } from "./components.tsx";
+import type { Line } from "./layout.ts";
 import { selectedSession, visibleSessions, type TuiState } from "./state.ts";
 import type { Theme } from "./theme.ts";
 
 // Below this body height the detail no longer fits under the list, so it becomes a drill-down.
 export const STACK_MIN_ROWS = 14;
 const LIST_SHARE = 0.45;
+const MIN_BODY_ROWS = 3;
+
+// A frame taller than the terminal makes Ink clear and redraw it on every update, which leaves stale rows on screen.
+// The chrome is trimmed in priority order so the body keeps at least MIN_BODY_ROWS and the frame fits the terminal.
+function fitChrome(parts: Line[][], height: number): Line[][] {
+  let budget = Math.max(0, height - MIN_BODY_ROWS);
+  return parts.map((lines) => {
+    const kept = lines.slice(0, budget);
+    budget -= kept.length;
+    return kept;
+  });
+}
 
 export interface ScreenProps {
   state: TuiState;
@@ -22,14 +35,19 @@ export interface ScreenProps {
 export function Screen({ state, now, width, height, theme, classifierEnabled }: ScreenProps) {
   const sessions = visibleSessions(state, now);
   const selected = selectedSession(state, now);
-  const header = headerLines(state, now, theme, classifierEnabled, width);
-  const banners = bannerLines(state, now, theme, classifierEnabled, width);
-  const filter = filterLines(state, theme, width);
-  const status = statusLines(state, theme, width);
   // The narrow and wide hints are the same length, so either wraps to the same height.
-  const footerHeight = footerLines(state, theme, false, width).length;
-  const chrome = header.length + banners.length + filter.length + status.length + footerHeight;
-  const bodyHeight = Math.max(3, height - chrome);
+  const [header, footerRows, banners, status, filter] = fitChrome(
+    [
+      headerLines(state, now, theme, classifierEnabled, width),
+      footerLines(state, theme, false, width),
+      bannerLines(state, now, theme, classifierEnabled, width),
+      statusLines(state, theme, width),
+      filterLines(state, theme, width),
+    ],
+    height,
+  );
+  const chrome = header.length + banners.length + filter.length + status.length + footerRows.length;
+  const bodyHeight = Math.max(1, height - chrome);
   const stacked = bodyHeight >= STACK_MIN_ROWS;
   const events = selected && state.detail?.sessionId === selected.sessionId ? state.detail.events : null;
 
@@ -61,7 +79,7 @@ export function Screen({ state, now, width, height, theme, classifierEnabled }: 
         </Box>
       </Box>
       <TextLines lines={status} />
-      <TextLines lines={footerLines(state, theme, !stacked, width)} />
+      <TextLines lines={footerLines(state, theme, !stacked, width).slice(0, footerRows.length)} />
     </Box>
   );
 }

@@ -228,3 +228,18 @@ describe("AI confidence", () => {
     expect(frame(observed, 140)).toMatch(/Critical risk: Dropping a production table[\s\S]*Observed/);
   });
 });
+
+describe("Screen on a short terminal", () => {
+  it("never renders more lines than the terminal has rows", () => {
+    for (const [width, height] of [[75, 8], [60, 8], [50, 6], [40, 8], [30, 10], [20, 12]]) {
+      const lines = frame(withSessions(), width, { height }).split("\n");
+      expect(lines.length, `${width}x${height}`).toBeLessThanOrEqual(height);
+    }
+  });
+
+  it("keeps the header and the key hints when the terminal is short", () => {
+    const text = frame(withSessions(), 75, { height: 8 });
+    expect(text).toMatch(/attention/);
+    expect(text).toMatch(/q quit/);
+  });
+});
